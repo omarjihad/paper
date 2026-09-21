@@ -72,6 +72,42 @@ hash   = HMAC_SHA256(key = secret,      data = <data_check_string>)
 
 ---
 
+## النشر
+
+المشروع يعمل على أي استضافة تدعم Node.js — خادم واحد يقدّم الـAPI وواجهة اللعبة معًا.
+
+```bash
+npm install
+npm run build     # يبني الحزم + الخادم + الواجهة
+npm start         # يستمع على process.env.PORT (افتراضيًا 3000) و 0.0.0.0
+```
+
+### على Render
+
+| الحقل | القيمة |
+| --- | --- |
+| Environment | Node |
+| Build Command | `npm install --include=dev && npm run build` |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` |
+
+**انتبه لـ`--include=dev`:** يضبط Render المتغيّر `NODE_ENV=production`، وعندها يتخطّى npm
+حزم التطوير — ومنها TypeScript وVite — فيفشل البناء. هذه الراية تحلّ المشكلة.
+
+متغيّرات البيئة المطلوبة على الخدمة: `TELEGRAM_BOT_TOKEN` و`SESSION_SECRET`.
+لا تضبط `PORT` يدويًا (تضبطه المنصّة)، ولا تضبط `DEV_ALLOW_GUEST`.
+
+### حماية الإنتاج
+
+عندما `NODE_ENV=production`:
+
+- **دخول الضيف مغلق تلقائيًا** — تيليجرام هو السبيل الوحيد للدخول.
+- **يرفض الخادم الإقلاع** إذا كان `SESSION_SECRET` ناقصًا أو ما زال قيمة التطوير،
+  أو إذا كان `TELEGRAM_BOT_TOKEN` ناقصًا بلا بديل للدخول — مع رسالة تسمّي المتغيّر الناقص
+  بدل تشغيل خادم مكشوف بصمت.
+
+---
+
 ## بنية المشروع
 
 ```

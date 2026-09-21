@@ -1,9 +1,18 @@
 import { buildApp } from './app.js';
-import { loadEnv } from './core/env.js';
+import { assertProductionConfig, loadEnv } from './core/env.js';
 import { createPlayerRepository } from './infra/repository.factory.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
+
+  const problems = assertProductionConfig(env);
+  if (problems.length > 0) {
+    console.error('\nتعذّر الإقلاع في وضع الإنتاج بسبب إعدادات ناقصة:');
+    for (const problem of problems) console.error(`  • ${problem}`);
+    console.error('\nاضبط هذه المتغيّرات في بيئة الاستضافة ثم أعد التشغيل.\n');
+    process.exit(1);
+  }
+
   const players = await createPlayerRepository(env, (message) => console.log(`[riqaa] ${message}`));
   const app = await buildApp({ env, players });
 
@@ -13,7 +22,11 @@ async function main(): Promise<void> {
     );
   }
   if (env.devAllowGuest) {
-    app.log.warn('DEV_ALLOW_GUEST مفعّل: يُسمح بدخول ضيف خارج تيليجرام. أوقفه في الإنتاج.');
+    app.log.warn(
+      env.isProduction
+        ? 'DEV_ALLOW_GUEST مفعّل في الإنتاج: أي شخص يستطيع الدخول بلا تيليجرام. أوقفه.'
+        : 'DEV_ALLOW_GUEST مفعّل: يُسمح بدخول ضيف خارج تيليجرام. أوقفه في الإنتاج.',
+    );
   }
 
   const shutdown = async (signal: string) => {
