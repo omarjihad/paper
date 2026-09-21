@@ -1,6 +1,10 @@
-/* ===== هوية «رقعة» البصرية ===== */
+/* ===================== هوية «رقعة» البصرية =====================
+   وضعان: داكن (الافتراضي) وفاتح يتبع ثيم تيليجرام.
+   الهوية ثابتة في الوضعين: نفس اللون المميّز ونفس الإيقاع البصري.
+================================================================ */
 :root {
   --bg: #0e1420;
+  --bg-deep: #0a0f18;
   --bg-soft: #131b29;
   --surface: #18212f;
   --surface-2: #1f2a3b;
@@ -12,8 +16,25 @@
 
   --accent: #35e0a1;
   --accent-deep: #17b980;
+  --on-accent: #06251a;
   --violet: #7c5cff;
   --danger: #ff6b6b;
+  --warn: #ffb443;
+
+  --glow: rgba(53, 224, 161, 0.22);
+  --halo-1: rgba(124, 92, 255, 0.18);
+  --halo-2: rgba(53, 224, 161, 0.12);
+
+  /* أسطح شبه شفافة — مكتوبة صراحةً كي تعمل على WebView قديم أيضًا. */
+  --tint: rgba(255, 255, 255, 0.04);
+  --nav-bg: rgba(14, 20, 32, 0.9);
+  --overlay: rgba(10, 15, 24, 0.82);
+  --accent-soft: rgba(53, 224, 161, 0.13);
+  --accent-line: rgba(53, 224, 161, 0.28);
+  --violet-soft: rgba(124, 92, 255, 0.16);
+  --violet-line: rgba(124, 92, 255, 0.32);
+  --warn-soft: rgba(255, 180, 67, 0.13);
+  --warn-line: rgba(255, 180, 67, 0.3);
 
   --radius-lg: 22px;
   --radius-md: 16px;
@@ -21,8 +42,45 @@
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --nav-height: 62px;
 
   color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #eef2f7;
+  --bg-deep: #e4eaf2;
+  --bg-soft: #f7f9fc;
+  --surface: #ffffff;
+  --surface-2: #eef2f7;
+  --line: rgba(14, 25, 40, 0.09);
+  --line-strong: rgba(14, 25, 40, 0.16);
+
+  --text: #132133;
+  --text-muted: #5f7186;
+
+  --accent: #0aa87a;
+  --accent-deep: #068b64;
+  --on-accent: #ffffff;
+  --violet: #6449e8;
+  --danger: #e04b4b;
+  --warn: #c97a10;
+
+  --glow: rgba(10, 168, 122, 0.18);
+  --halo-1: rgba(100, 73, 232, 0.1);
+  --halo-2: rgba(10, 168, 122, 0.1);
+
+  --tint: rgba(14, 25, 40, 0.04);
+  --nav-bg: rgba(247, 249, 252, 0.94);
+  --overlay: rgba(228, 234, 242, 0.86);
+  --accent-soft: rgba(10, 168, 122, 0.12);
+  --accent-line: rgba(10, 168, 122, 0.3);
+  --violet-soft: rgba(100, 73, 232, 0.12);
+  --violet-line: rgba(100, 73, 232, 0.32);
+  --warn-soft: rgba(201, 122, 16, 0.12);
+  --warn-line: rgba(201, 122, 16, 0.32);
+
+  color-scheme: light;
 }
 
 * {
@@ -43,14 +101,15 @@ body {
   color: var(--text);
   font-family: 'Cairo', system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 16px;
-  line-height: 1.5;
+  line-height: 1.55;
   user-select: none;
   -webkit-user-select: none;
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
 #app {
   position: relative;
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
   width: 100%;
   overflow: hidden;
 }
@@ -60,13 +119,13 @@ body {
   inset: 0;
   display: flex;
   flex-direction: column;
-  animation: fade-in 220ms ease-out;
+  animation: fade-in 200ms ease-out;
 }
 
 @keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -74,77 +133,126 @@ body {
   }
 }
 
-/* ===== القائمة الرئيسية ===== */
-.menu {
-  padding: calc(var(--safe-top) + 22px) 20px calc(var(--safe-bottom) + 22px);
-  gap: 18px;
-  overflow-y: auto;
-  background:
-    radial-gradient(120% 60% at 80% 0%, rgba(124, 92, 255, 0.18), transparent 60%),
-    radial-gradient(100% 50% at 10% 100%, rgba(53, 224, 161, 0.12), transparent 60%);
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
 }
 
+/* ===================== الهيكل العام ===================== */
+.shell {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(120% 55% at 85% 0%, var(--halo-1), transparent 62%),
+    radial-gradient(110% 45% at 5% 100%, var(--halo-2), transparent 62%);
+}
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: calc(var(--safe-top) + 16px) 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: fade-in 180ms ease-out;
+}
+
+/* ===================== العلامة ===================== */
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
 }
 
 .brand__mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 13px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
   position: relative;
   flex: none;
-  box-shadow: 0 8px 24px rgba(53, 224, 161, 0.25);
+  box-shadow: 0 8px 22px var(--glow);
 }
 
 .brand__mark::after {
   content: '';
   position: absolute;
-  inset: 45% 12% 12% 45%;
-  border-radius: 6px;
+  inset: 46% 12% 12% 46%;
+  border-radius: 5px;
   background: var(--violet);
 }
 
 .brand__name {
-  font-size: 26px;
+  font-size: 23px;
   font-weight: 800;
   letter-spacing: -0.5px;
+  line-height: 1.2;
 }
 
 .brand__tag {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-muted);
-  margin-top: -4px;
 }
 
+/* ===================== البطاقات ===================== */
 .card {
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg-soft) 100%);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 18px;
+  padding: 16px;
 }
 
-.profile {
+.card--tap {
+  width: 100%;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 130ms ease, border-color 130ms ease;
+}
+
+.card--tap:active {
+  transform: scale(0.985);
+  border-color: var(--line-strong);
+}
+
+/* ===================== هوية اللاعب ===================== */
+.identity {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 13px;
+  min-width: 0;
 }
 
 .avatar {
-  width: 62px;
-  height: 62px;
-  border-radius: 20px;
+  width: 58px;
+  height: 58px;
+  border-radius: 19px;
   flex: none;
   object-fit: cover;
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
 }
 
-.profile__name {
-  font-size: 19px;
+.avatar--lg {
+  width: 92px;
+  height: 92px;
+  border-radius: 30px;
+}
+
+.identity__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.identity__name {
+  font-size: 18.5px;
   font-weight: 700;
   margin: 0;
   white-space: nowrap;
@@ -152,64 +260,93 @@ body {
   text-overflow: ellipsis;
 }
 
-.profile__username {
+.identity__username {
   font-size: 13px;
   color: var(--text-muted);
   direction: ltr;
   text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  flex: none;
+  color: var(--text-muted);
+  opacity: 0.8;
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(53, 224, 161, 0.12);
+  background: var(--accent-soft);
   color: var(--accent);
-  border: 1px solid rgba(53, 224, 161, 0.25);
-  margin-top: 4px;
+  border: 1px solid var(--accent-line);
+  margin-top: 5px;
 }
 
 .badge--guest {
-  background: rgba(255, 180, 67, 0.12);
-  color: #ffb443;
-  border-color: rgba(255, 180, 67, 0.28);
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: var(--warn-line);
+}
+
+.badge--level {
+  background: var(--violet-soft);
+  color: var(--violet);
+  border-color: var(--violet-line);
+}
+
+/* ===================== الإحصاءات ===================== */
+.badge-row {
+  display: flex;
+  justify-content: center;
+}
+
+.badge-row .badge {
+  margin-top: 0;
 }
 
 .stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 14px;
 }
 
 .stat {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 12px;
+  padding: 11px 8px;
   text-align: center;
+  min-width: 0;
 }
 
 .stat__value {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 800;
   color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stat__label {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 
-.spacer {
-  flex: 1;
-  min-height: 12px;
+.stat--muted .stat__value {
+  color: var(--text-muted);
 }
 
+/* ===================== الأزرار ===================== */
 .btn {
   width: 100%;
   border: none;
@@ -217,17 +354,17 @@ body {
   padding: 16px 20px;
   font-family: inherit;
   font-size: 17px;
-  font-weight: 700;
-  color: #06251a;
+  font-weight: 800;
+  color: var(--on-accent);
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
-  box-shadow: 0 10px 26px rgba(53, 224, 161, 0.22);
+  box-shadow: 0 10px 26px var(--glow);
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 .btn:active {
   transform: scale(0.98);
-  box-shadow: 0 4px 14px rgba(53, 224, 161, 0.18);
+  box-shadow: 0 4px 14px var(--glow);
 }
 
 .btn--ghost {
@@ -242,16 +379,32 @@ body {
   pointer-events: none;
 }
 
+.btn-dock {
+  flex: none;
+  /* تلاشٍ ناعم كي يمرّ المحتوى خلف الزر بدل أن يُقصّ فجأة. */
+  padding: 18px 16px 10px;
+  display: grid;
+  gap: 8px;
+  background: linear-gradient(to top, var(--nav-bg) 62%, transparent);
+  backdrop-filter: blur(6px);
+}
+
 .note {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
   text-align: center;
   line-height: 1.7;
 }
 
+.spacer {
+  flex: 1;
+  min-height: 8px;
+}
+
+/* ===================== كيف تلعب ===================== */
 .how {
   display: grid;
-  gap: 10px;
+  gap: 9px;
   font-size: 13.5px;
   color: var(--text-muted);
 }
@@ -279,7 +432,116 @@ body {
   background: var(--danger);
 }
 
-/* ===== شاشة اللعب ===== */
+/* ===================== التنقل السفلي ===================== */
+.nav {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  padding: 6px 10px calc(var(--safe-bottom) + 6px);
+  background: var(--nav-bg);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+
+.nav__item {
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.nav__item span {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.nav__item[aria-selected='true'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.nav__item:active {
+  transform: scale(0.97);
+}
+
+/* ===================== الملف الشخصي ===================== */
+.profile-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 6px 0 2px;
+}
+
+.profile-head__name {
+  font-size: 21px;
+  font-weight: 800;
+  margin: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin: 2px 2px -4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 2px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row__label {
+  color: var(--text-muted);
+  flex: none;
+}
+
+.row__value {
+  font-weight: 700;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__reveal {
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: none;
+}
+
+/* ===================== شاشة اللعب ===================== */
 .game {
   position: absolute;
   inset: 0;
@@ -302,7 +564,7 @@ body {
   left: 12px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   pointer-events: none;
 }
 
@@ -311,10 +573,11 @@ body {
   white-space: nowrap;
   background: rgba(14, 20, 32, 0.72);
   backdrop-filter: blur(8px);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e9eef6;
   border-radius: 999px;
-  padding: 7px 13px;
-  font-size: 13px;
+  padding: 6px 12px;
+  font-size: 12.5px;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -322,47 +585,49 @@ body {
 }
 
 .hud__chip span {
-  color: var(--text-muted);
+  color: #8fa0b8;
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: 11px;
 }
 
 .hud__exit {
   margin-inline-start: auto;
   pointer-events: auto;
-  width: 36px;
-  height: 36px;
+  width: 33px;
+  height: 33px;
   border-radius: 50%;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(14, 20, 32, 0.72);
-  color: var(--text);
-  font-size: 17px;
+  color: #e9eef6;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
+  flex: none;
 }
 
 .hint {
   position: absolute;
-  bottom: calc(var(--safe-bottom) + 26px);
+  /* فوق عصا التحكم الساكنة مباشرة. */
+  bottom: calc(var(--safe-bottom) + 172px);
   left: 0;
   right: 0;
   text-align: center;
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: 12.5px;
+  color: #8fa0b8;
   pointer-events: none;
   transition: opacity 400ms ease;
 }
 
-/* ===== النتيجة ===== */
+/* ===================== النتيجة ===================== */
 .result {
   position: absolute;
   inset: 0;
-  background: rgba(8, 12, 20, 0.78);
+  background: var(--overlay);
   backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 18px;
 }
 
 .result__card {
@@ -371,9 +636,9 @@ body {
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg-soft) 100%);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
-  padding: 22px;
+  padding: 20px;
   text-align: center;
-  animation: pop 240ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: pop 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 
 @keyframes pop {
@@ -396,20 +661,20 @@ body {
 .result__reason {
   font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 16px;
+  margin-bottom: 15px;
 }
 
 .result__rows {
   display: grid;
   gap: 8px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .result__row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 11px 14px;
@@ -423,10 +688,10 @@ body {
 
 .result__actions {
   display: grid;
-  gap: 10px;
+  gap: 9px;
 }
 
-/* ===== حالات ===== */
+/* ===================== حالات الانتظار ===================== */
 .center-state {
   position: absolute;
   inset: 0;
@@ -434,16 +699,19 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 28px;
+  gap: 16px;
+  padding: 26px;
   text-align: center;
+  background:
+    radial-gradient(120% 55% at 85% 0%, var(--halo-1), transparent 62%),
+    radial-gradient(110% 45% at 5% 100%, var(--halo-2), transparent 62%);
 }
 
 .spinner {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.12);
+  border: 3px solid var(--line-strong);
   border-top-color: var(--accent);
   animation: spin 900ms linear infinite;
 }
@@ -454,13 +722,88 @@ body {
   }
 }
 
+/* رسم تمهيدي: رقعة تُملأ خلية خلية — نفس فكرة اللعبة. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 26px);
+  grid-auto-rows: 26px;
+  gap: 6px;
+}
+
+.tiles i {
+  border-radius: 7px;
+  background: var(--surface-2);
+  animation: tile 1.5s ease-in-out infinite;
+}
+
+.tiles i:nth-child(1) { animation-delay: 0ms; }
+.tiles i:nth-child(2) { animation-delay: 90ms; }
+.tiles i:nth-child(3) { animation-delay: 180ms; }
+.tiles i:nth-child(4) { animation-delay: 450ms; }
+.tiles i:nth-child(5) { animation-delay: 360ms; }
+.tiles i:nth-child(6) { animation-delay: 270ms; }
+.tiles i:nth-child(7) { animation-delay: 540ms; }
+.tiles i:nth-child(8) { animation-delay: 630ms; }
+.tiles i:nth-child(9) { animation-delay: 720ms; }
+
+@keyframes tile {
+  0%,
+  100% {
+    background: var(--surface-2);
+    transform: scale(0.88);
+  }
+  40% {
+    background: var(--accent);
+    transform: scale(1);
+  }
+}
+
 .state__title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
 }
 
 .state__text {
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text-muted);
   max-width: 320px;
+}
+
+/* ===================== شاشات صغيرة جدًا ===================== */
+@media (max-height: 640px) {
+  .page {
+    gap: 10px;
+    padding-top: calc(var(--safe-top) + 10px);
+  }
+
+  .avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 16px;
+  }
+
+  .avatar--lg {
+    width: 74px;
+    height: 74px;
+    border-radius: 24px;
+  }
+
+  .btn {
+    padding: 14px 18px;
+    font-size: 16px;
+  }
+
+  .card {
+    padding: 13px;
+  }
+}
+
+@media (max-width: 340px) {
+  .stat__value {
+    font-size: 17px;
+  }
+
+  .identity__name {
+    font-size: 17px;
+  }
 }

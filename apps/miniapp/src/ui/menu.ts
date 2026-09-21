@@ -1,20 +1,55 @@
 import type { AuthResponse } from '@riqaa/shared';
 import { avatarElement } from './avatar.js';
 import { h } from './dom.js';
+import { icons } from './icons.js';
+import { PLAYER_LEVEL, displayName, formatPercent } from './player.js';
 
-/** القائمة الرئيسية: هوية اللاعب + زر واحد واضح. لا حشو. */
-export function menuScreen(session: AuthResponse, onPlay: () => void): HTMLElement {
+/**
+ * الصفحة الرئيسية: هوية اللاعب في الأعلى، وزر «العب الآن» هو العنصر الأبرز.
+ * بطاقة اللاعب قابلة للضغط وتفتح الملف الشخصي.
+ *
+ * تُعاد قطعتان: محتوى قابل للتمرير، ورصيف ثابت يحمل زر اللعب —
+ * كي يبقى الزر ظاهرًا حتى على أقصر الشاشات.
+ */
+export function menuPage(
+  session: AuthResponse,
+  handlers: { onPlay: () => void; onOpenProfile: () => void },
+): HTMLElement[] {
   const player = session.player;
-  const fullName = [player.firstName, player.lastName].filter(Boolean).join(' ');
 
   const identityBadge =
     session.source === 'telegram'
       ? h('div', { class: 'badge', text: 'متصل عبر تيليجرام' })
       : h('div', { class: 'badge badge--guest', text: 'وضع ضيف — للتطوير فقط' });
 
-  const playButton = h('button', { class: 'btn', type: 'button', onclick: onPlay }, ['العب الآن']);
+  const profileCard = h(
+    'button',
+    {
+      class: 'card card--tap',
+      type: 'button',
+      'aria-label': 'فتح الملف الشخصي',
+      onclick: handlers.onOpenProfile,
+    },
+    [
+      h('div', { class: 'identity' }, [
+        avatarElement(player),
+        h('div', { class: 'identity__body' }, [
+          h('h1', { class: 'identity__name', text: displayName(player) }),
+          player.username
+            ? h('div', { class: 'identity__username', text: `@${player.username}` })
+            : null,
+          h('div', { class: 'badge badge--level', text: `المستوى ${PLAYER_LEVEL}` }),
+        ]),
+        h('div', { class: 'chevron' }, [icons.chevron(20)]),
+      ]),
+      h('div', { class: 'stats' }, [
+        stat(String(player.stats.rounds), 'الجولات'),
+        stat(formatPercent(player.stats.bestAreaPercent), 'أفضل مساحة'),
+      ]),
+    ],
+  );
 
-  return h('div', { class: 'screen menu' }, [
+  const page = h('div', { class: 'page' }, [
     h('div', { class: 'brand' }, [
       h('div', { class: 'brand__mark' }),
       h('div', {}, [
@@ -23,44 +58,34 @@ export function menuScreen(session: AuthResponse, onPlay: () => void): HTMLEleme
       ]),
     ]),
 
-    h('div', { class: 'card' }, [
-      h('div', { class: 'profile' }, [
-        avatarElement(player),
-        h('div', { style: 'min-width:0' }, [
-          h('h1', { class: 'profile__name', text: fullName || 'لاعب' }),
-          player.username
-            ? h('div', { class: 'profile__username', text: `@${player.username}` })
-            : null,
-          identityBadge,
-        ]),
-      ]),
-      h('div', { class: 'stats' }, [
-        h('div', { class: 'stat' }, [
-          h('div', { class: 'stat__value', text: String(player.stats.rounds) }),
-          h('div', { class: 'stat__label', text: 'الجولات' }),
-        ]),
-        h('div', { class: 'stat' }, [
-          h('div', { class: 'stat__value', text: `${player.stats.bestAreaPercent.toFixed(2)}٪` }),
-          h('div', { class: 'stat__label', text: 'أفضل مساحة' }),
-        ]),
-      ]),
-    ]),
+    profileCard,
+    h('div', { class: 'badge-row' }, [identityBadge]),
 
     h('div', { class: 'card how' }, [
-      row('اخرج من أرضك، ارسم مسارًا، ثم عُد إليها لتضم ما أحطت به.'),
-      row('داخل أرضك أنت آمن. خارجها مسارك مكشوف.'),
-      row('من يقطع مسارك يُخرجك من الجولة — وأنت تستطيع فعل المثل.'),
+      how('اخرج من أرضك، ارسم مسارًا، ثم عُد إليها لتضم ما أحطت به.'),
+      how('داخل أرضك أنت آمن. خارجها مسارك مكشوف.'),
+      how('من يقطع مسارك يُخرجك من الجولة — وأنت تستطيع فعل المثل.'),
     ]),
+  ]);
 
-    h('div', { class: 'spacer' }),
-    playButton,
+  const dock = h('div', { class: 'btn-dock' }, [
+    h('button', { class: 'btn', type: 'button', onclick: handlers.onPlay }, ['العب الآن']),
     h('div', {
       class: 'note',
       text: 'خصومك في هذه المرحلة بوتات داخل اللعبة، وليسوا لاعبين حقيقيين.',
     }),
   ]);
+
+  return [page, dock];
 }
 
-function row(text: string): HTMLElement {
+function stat(value: string, label: string): HTMLElement {
+  return h('div', { class: 'stat' }, [
+    h('div', { class: 'stat__value', text: value }),
+    h('div', { class: 'stat__label', text: label }),
+  ]);
+}
+
+function how(text: string): HTMLElement {
   return h('div', { class: 'how__row' }, [h('div', { class: 'how__dot' }), h('div', { text })]);
 }

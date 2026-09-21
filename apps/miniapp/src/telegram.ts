@@ -11,13 +11,24 @@ export interface TelegramUserUnsafe {
   photo_url?: string;
 }
 
+export interface TelegramThemeParams {
+  bg_color?: string;
+  text_color?: string;
+  hint_color?: string;
+  secondary_bg_color?: string;
+}
+
 interface TelegramWebApp {
   initData: string;
   initDataUnsafe: { user?: TelegramUserUnsafe };
   version: string;
   platform: string;
-  colorScheme: string;
+  colorScheme: 'dark' | 'light';
+  themeParams: TelegramThemeParams;
   isExpanded: boolean;
+  viewportStableHeight?: number;
+  onEvent?(event: string, handler: () => void): void;
+  offEvent?(event: string, handler: () => void): void;
   ready(): void;
   expand(): void;
   close(): void;
@@ -49,14 +60,56 @@ const webApp: TelegramWebApp | null = window.Telegram?.WebApp ?? null;
 /** true فقط عندما تُفتح الصفحة فعلًا داخل تيليجرام (توجد initData موقَّعة). */
 export const isInsideTelegram = Boolean(webApp && webApp.initData && webApp.initData.length > 0);
 
+/** ألوان الإطار لكل وضع — نحافظ على هوية اللعبة بدل تبنّي ألوان تيليجرام حرفيًا. */
+const FRAME_COLORS = { dark: '#0e1420', light: '#eef2f7' } as const;
+
+export type ColorScheme = 'dark' | 'light';
+
+/** الوضع الذي يعمل به تيليجرام حاليًا؛ الداكن هو الافتراضي خارجه. */
+export function getColorScheme(): ColorScheme {
+  return webApp?.colorScheme === 'light' ? 'light' : 'dark';
+}
+
+/** يطبّق الوضع على الصفحة ويوحّد لون إطار تيليجرام معه. */
+export function applyColorScheme(): ColorScheme {
+  const scheme = getColorScheme();
+  document.documentElement.dataset.theme = scheme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', FRAME_COLORS[scheme]);
+  webApp?.setHeaderColor?.(FRAME_COLORS[scheme]);
+  webApp?.setBackgroundColor?.(FRAME_COLORS[scheme]);
+  return scheme;
+}
+
+/**
+ * ارتفاع فعلي للواجهة: بعض عملاء تيليجرام لا يحترمون 100dvh.
+ * ارتفاع التطبيق لا يتجاوز ارتفاع النافذة أبدًا، فأي قيمة أكبر من العميل تُتجاهل —
+ * وإلا امتدت الصفحة خارج الشاشة واختفى التنقل السفلي.
+ */
+function syncViewportHeight(): void {
+  const reported = webApp?.viewportStableHeight ?? 0;
+  const windowHeight = window.visualViewport?.height ?? window.innerHeight;
+  const height = reported > 0 ? Math.min(reported, windowHeight) : windowHeight;
+  document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
+}
+
 export function initTelegram(): void {
+  syncViewportHeight();
+  // إعادة القياس بعد تطبيق meta viewport وعند أي تغيّر لاحق.
+  window.addEventListener('load', syncViewportHeight);
+  window.addEventListener('resize', syncViewportHeight);
+  window.addEventListener('orientationchange', syncViewportHeight);
+  window.visualViewport?.addEventListener('resize', syncViewportHeight);
+
+  applyColorScheme();
   if (!webApp) return;
+
   webApp.ready();
   webApp.expand();
-  webApp.setHeaderColor?.('#0e1420');
-  webApp.setBackgroundColor?.('#0e1420');
   // يمنع إغلاق التطبيق بالسحب لأسفل أثناء استخدام عصا التحكم.
   webApp.disableVerticalSwipes?.();
+
+  webApp.onEvent?.('themeChanged', () => applyColorScheme());
+  webApp.onEvent?.('viewportChanged', syncViewportHeight);
 }
 
 export function getInitData(): string {

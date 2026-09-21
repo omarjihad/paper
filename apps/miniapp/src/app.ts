@@ -8,29 +8,35 @@ import {
   setBackButton,
   setClosingConfirmation,
 } from './telegram.js';
-import { clear } from './ui/dom.js';
-import { menuScreen } from './ui/menu.js';
+import { clear, h } from './ui/dom.js';
+import { menuPage } from './ui/menu.js';
+import { bottomNav, type Tab } from './ui/nav.js';
+import { profilePage } from './ui/profile.js';
 import { resultScreen, type ResultView } from './ui/result.js';
-import { errorState, loadingState } from './ui/states.js';
+import { errorState, loadingState, matchLoadingState } from './ui/states.js';
+
+/** أقل زمن تُعرض فيه شاشة التجهيز كي لا تومض ثم تختفي. */
+const MATCH_LOADING_MS = 850;
 
 /**
- * منسّق الشاشات: قائمة ← جولة ← نتيجة.
- * كل شاشة تُبنى عند الحاجة وتُزال بالكامل عند الخروج منها — لا تراكم في الذاكرة.
+ * منسّق الشاشات: (الرئيسية | الملف الشخصي) ← تجهيز ← جولة ← نتيجة.
+ * كل شاشة تُبنى عند الحاجة وتُزال بالكامل عند الخروج منها.
  */
 export class App {
   private readonly api = new ApiClient();
   private session: AuthResponse | null = null;
   private game: GameScreen | null = null;
+  private tab: Tab = 'home';
 
   constructor(private readonly root: HTMLElement) {}
 
   async boot(): Promise<void> {
     initTelegram();
-    this.show(loadingState('جارٍ تجهيز اللعبة…'));
+    this.show(loadingState('جاري التحميل…'));
 
     try {
       this.session = await this.api.authenticate(getInitData());
-      this.showMenu();
+      this.showTab('home');
     } catch (error) {
       this.showAuthError(error);
     }
@@ -43,11 +49,29 @@ export class App {
     this.root.append(element);
   }
 
-  private showMenu(): void {
+  /** الهيكل الثابت: صفحة متغيّرة + تنقّل سفلي. */
+  private showTab(tab: Tab): void {
     if (!this.session) return;
-    setBackButton(null);
+    this.tab = tab;
     setClosingConfirmation(false);
-    this.show(menuScreen(this.session, () => void this.play()));
+
+    const content =
+      tab === 'home'
+        ? menuPage(this.session, {
+            onPlay: () => void this.play(),
+            onOpenProfile: () => this.showTab('profile'),
+          })
+        : [profilePage(this.session)];
+
+    this.show(
+      h('div', { class: 'screen shell' }, [
+        ...content,
+        bottomNav(tab, (next) => this.showTab(next)),
+      ]),
+    );
+
+    // زر رجوع تيليجرام يعيد إلى الرئيسية من الملف الشخصي فقط.
+    setBackButton(tab === 'profile' ? () => this.showTab('home') : null);
   }
 
   private showAuthError(error: unknown): void {
@@ -75,8 +99,10 @@ export class App {
   // -------------------------------------------------------------- الجولة
 
   private async play(): Promise<void> {
-    this.show(loadingState('جارٍ تجهيز الجولة…'));
+    this.show(matchLoadingState());
+    setBackButton(null);
 
+    const started = Date.now();
     let descriptor: MatchStartResponse;
     try {
       descriptor = await this.api.startMatch();
@@ -102,12 +128,14 @@ export class App {
       }
     }
 
+    await delay(MATCH_LOADING_MS - (Date.now() - started));
+
     clear(this.root);
     setClosingConfirmation(true);
     this.game = new GameScreen(
       descriptor,
       (summary) => void this.finishRound(summary),
-      () => this.showMenu(),
+      () => this.showTab('home'),
     );
     this.game.mount(this.root);
     setBackButton(() => this.game?.quit());
@@ -146,7 +174,12 @@ export class App {
       view.warning = 'تعذّر حفظ النتيجة على الخادم، الأرقام المعروضة محلية.';
     }
 
-    this.show(resultScreen(view, () => void this.play(), () => this.showMenu()));
-    setBackButton(() => this.showMenu());
+    this.show(resultScreen(view, () => void this.play(), () => this.showTab('home')));
+    setBackButton(() => this.showTab('home'));
   }
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

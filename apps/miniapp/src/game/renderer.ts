@@ -5,6 +5,8 @@ import type { JoystickState } from './input.js';
 /** عدد الخلايا الظاهرة على البُعد الأصغر للشاشة — يضبط مستوى التقريب. */
 const VISIBLE_CELLS = 30;
 const MAX_DPR = 2;
+/** ارتفاع مركز العصا الساكنة عن أسفل الشاشة. */
+const RESTING_JOYSTICK_BOTTOM = 112;
 
 /**
  * راسم Canvas 2D.
@@ -81,7 +83,7 @@ export class Renderer {
     this.drawActors(offsetX, offsetY, cell);
     this.drawBorder(offsetX, offsetY, worldW, worldH);
 
-    if (joystick.active) this.drawJoystick(joystick);
+    this.drawJoystick(joystick);
   }
 
   private drawGrid(
@@ -207,19 +209,30 @@ export class Renderer {
     ctx.strokeRect(offsetX - 1.5, offsetY - 1.5, worldW + 3, worldH + 3);
   }
 
+  /**
+   * العصا ظاهرة دائمًا أسفل الشاشة كمرجع بصري، وتنتقل تحت الإصبع عند اللمس
+   * في أي مكان. باهتة وهي ساكنة كي لا تزاحم مساحة اللعب.
+   */
   private drawJoystick(joystick: JoystickState): void {
     const ctx = this.ctx;
+    const resting = !joystick.active;
+
+    const baseX = resting ? this.width / 2 : joystick.originX;
+    const baseY = resting ? this.height - RESTING_JOYSTICK_BOTTOM : joystick.originY;
+    const knobX = resting ? baseX : joystick.knobX;
+    const knobY = resting ? baseY : joystick.knobY;
+
     ctx.beginPath();
-    ctx.arc(joystick.originX, joystick.originY, 46, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.arc(baseX, baseY, 46, 0, Math.PI * 2);
+    ctx.fillStyle = resting ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.07)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.strokeStyle = resting ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(joystick.knobX, joystick.knobY, 20, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(53,224,161,0.75)';
+    ctx.arc(knobX, knobY, resting ? 16 : 20, 0, Math.PI * 2);
+    ctx.fillStyle = resting ? 'rgba(53,224,161,0.24)' : 'rgba(53,224,161,0.8)';
     ctx.fill();
   }
 }
