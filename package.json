@@ -1,0 +1,24 @@
+{
+  "name": "riqaa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "رقعة — لعبة سيطرة على الأراضي داخل Telegram Mini App",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "workspaces": [
+    "packages/shared",
+    "packages/game-core",
+    "apps/server",
+    "apps/miniapp"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @riqaa/shared && npm run build -w @riqaa/game-core",
+    "build": "npm run build:packages && npm run build -w @riqaa/server && npm run build -w @riqaa/miniapp",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev -w @riqaa/server",
+    "dev:miniapp": "npm run dev -w @riqaa/miniapp",
+    "start": "npm run start -w @riqaa/server",
+    "typecheck": "npm run build:packages && npm run typecheck -w @riqaa/server && npm run typecheck -w @riqaa/miniapp",
+    "test": "npm run test -w @riqaa/game-core"
+  }
+}
