@@ -136,10 +136,14 @@ function syncSafeAreaInsets(): void {
     Math.max(0, outer?.[side] ?? 0) + Math.max(0, inner?.[side] ?? 0);
 
   safely('safeAreaInset', () => {
-    root.style.setProperty('--tg-safe-top', `${merge('top')}px`);
-    root.style.setProperty('--tg-safe-right', `${merge('right')}px`);
-    root.style.setProperty('--tg-safe-bottom', `${merge('bottom')}px`);
-    root.style.setProperty('--tg-safe-left', `${merge('left')}px`);
+    // عند التدوير: أعلى الجهاز يصبح يسار المحتوى، ويمينه أسفله… وهكذا.
+    const map = rotated
+      ? { top: 'right', right: 'bottom', bottom: 'left', left: 'top' }
+      : { top: 'top', right: 'right', bottom: 'bottom', left: 'left' };
+    root.style.setProperty('--tg-safe-top', `${merge(map.top as keyof TelegramInset)}px`);
+    root.style.setProperty('--tg-safe-right', `${merge(map.right as keyof TelegramInset)}px`);
+    root.style.setProperty('--tg-safe-bottom', `${merge(map.bottom as keyof TelegramInset)}px`);
+    root.style.setProperty('--tg-safe-left', `${merge(map.left as keyof TelegramInset)}px`);
   });
 }
 
@@ -219,10 +223,13 @@ export function requestLandscape(): void {
 
   safely('requestFullscreen', () => webApp?.requestFullscreen?.());
   requestDocumentFullscreen();
+  // لا ننتظر نتيجة القفل: العرض يظهر فورًا، ثم يُلغى التدوير إن دار الجهاز.
+  applyRotation();
 
   void lockToLandscape().then((locked) => {
     syncViewportHeight();
     syncSafeAreaInsets();
+    applyRotation();
     if (locked || pendingAttempts >= 4) return;
     // ملء الشاشة قد يتأخر: نعيد المحاولة قليلًا بدل افتراض التنفيذ الفوري.
     pendingAttempts++;
@@ -236,6 +243,7 @@ function requestLandscapeRetry(): void {
   void lockToLandscape().then((locked) => {
     syncViewportHeight();
     syncSafeAreaInsets();
+    applyRotation();
     if (locked || pendingAttempts >= 4) return;
     pendingAttempts++;
     window.setTimeout(() => {
@@ -249,6 +257,7 @@ export function releaseLandscape(): void {
   landscapeWanted = false;
   landscapeLocked = false;
   pendingAttempts = 0;
+  applyRotation();
   safely('unlockOrientation', () => webApp?.unlockOrientation?.());
   safely('screen.orientation.unlock', () => orientationApi()?.unlock?.());
   safely('document.exitFullscreen', () => {
@@ -260,6 +269,49 @@ export function releaseLandscape(): void {
   syncSafeAreaInsets();
 }
 
+/* ---------- التدوير البرمجي ----------
+ * تيليجرام لا يملك واجهة تفرض العرض، وقفل المتصفح مرفوض في أغلب عملائه.
+ * فالسبيل الوحيد لفتح اللعبة بالعرض فورًا هو تدوير محتوى التطبيق نفسه 90
+ * درجة داخل النافذة الطولية. يُلغى التدوير لحظة أن يصبح الجهاز بالعرض فعلًا.
+ */
+let rotated = false;
+
+export function isRotated(): boolean {
+  return rotated;
+}
+
+/** التدوير للهواتف داخل تيليجرام فقط: لا سطح مكتب ولا متصفح عادي. */
+function isMobileTelegramClient(): boolean {
+  const platform = webApp?.platform ?? '';
+  return platform === 'android' || platform === 'ios';
+}
+
+function applyRotation(): void {
+  const root = document.documentElement;
+  const width = Math.round(window.visualViewport?.width ?? window.innerWidth);
+  const height = Math.round(window.visualViewport?.height ?? window.innerHeight);
+  const shouldRotate = landscapeWanted && height > width && isMobileTelegramClient();
+
+  if (!shouldRotate) {
+    if (rotated) {
+      rotated = false;
+      delete root.dataset.rotated;
+      root.style.removeProperty('--rot-width');
+      root.style.removeProperty('--rot-height');
+      root.style.removeProperty('--rot-origin');
+    }
+    return;
+  }
+
+  rotated = true;
+  root.dataset.rotated = '1';
+  // الإطار المُدار يشغل كامل الشاشة: عرضه = ارتفاع النافذة والعكس.
+  root.style.setProperty('--rot-width', `${height}px`);
+  root.style.setProperty('--rot-height', `${width}px`);
+  // مركز الدوران المحسوب كي تنطبق الحواف الأربع على الشاشة تمامًا.
+  root.style.setProperty('--rot-origin', `${width / 2}px`);
+}
+
 /**
  * يُستدعى عند كل تغيّر في ملء الشاشة أو الاتجاه أو المقاس:
  * يعيد قياس الواجهة، ويكمل ما تبقّى من تسلسل العرض.
@@ -267,13 +319,17 @@ export function releaseLandscape(): void {
 function onEnvironmentChanged(): void {
   syncViewportHeight();
   syncSafeAreaInsets();
-  if (!landscapeWanted) return;
+  if (!landscapeWanted) {
+    applyRotation();
+    return;
+  }
   if (isLandscape()) {
-    // صرنا بالعرض (بالقفل أو بتدوير المستخدم) — نثبّته.
+    // صرنا بالعرض (بالقفل أو بتدوير المستخدم) — نثبّته ونلغي التدوير البرمجي.
     keepLandscapeLocked();
   } else if (!landscapeLocked) {
     void lockToLandscape();
   }
+  applyRotation();
 }
 
 /** يشترك في كل ما قد يغيّر أبعاد الواجهة الفعلية. */

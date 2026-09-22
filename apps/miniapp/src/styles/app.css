@@ -116,6 +116,25 @@ body {
   overflow: hidden;
 }
 
+/**
+ * وضع العرض على جهاز يرفض قفل الاتجاه: نُدير محتوى التطبيق نفسه 90 درجة.
+ * الأبعاد مقلوبة ومركز الدوران محسوب بحيث تنطبق الحواف الأربع على الشاشة،
+ * فلا يبقى أي فراغ. يُلغى فور أن يصبح الجهاز بالعرض فعلًا.
+ */
+:root[data-rotated='1'] body {
+  overflow: hidden;
+}
+
+:root[data-rotated='1'] #app {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--rot-width);
+  height: var(--rot-height);
+  transform: rotate(90deg);
+  transform-origin: var(--rot-origin) var(--rot-origin);
+}
+
 .screen {
   position: absolute;
   inset: 0;

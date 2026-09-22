@@ -1,3 +1,5 @@
+import { isRotated } from '../telegram.js';
+
 export interface JoystickState {
   active: boolean;
   originX: number;
@@ -79,27 +81,29 @@ export class InputController {
     this.pointerId = event.pointerId;
     this.surface.setPointerCapture?.(event.pointerId);
 
+    const point = toLocalPoint(event.clientX, event.clientY);
     this.joystick.active = true;
-    this.joystick.originX = event.clientX;
-    this.joystick.originY = event.clientY;
-    this.joystick.knobX = event.clientX;
-    this.joystick.knobY = event.clientY;
+    this.joystick.originX = point.x;
+    this.joystick.originY = point.y;
+    this.joystick.knobX = point.x;
+    this.joystick.knobY = point.y;
     event.preventDefault();
   };
 
   private onPointerMove = (event: PointerEvent): void => {
     if (this.pointerId !== event.pointerId) return;
 
-    let dx = event.clientX - this.joystick.originX;
-    let dy = event.clientY - this.joystick.originY;
+    const point = toLocalPoint(event.clientX, event.clientY);
+    let dx = point.x - this.joystick.originX;
+    let dy = point.y - this.joystick.originY;
     const distance = Math.hypot(dx, dy);
 
     // الإصبع أبعد من نصف القطر: نُزحزح المركز خلفه بدل تقييد المدى،
     // فيبقى التحكم تحت الإصبع وتبقى السرعة قصوى لا متغيّرة مع بُعد السحب.
     if (distance > MAX_RADIUS) {
       const scale = MAX_RADIUS / distance;
-      this.joystick.originX = event.clientX - dx * scale;
-      this.joystick.originY = event.clientY - dy * scale;
+      this.joystick.originX = point.x - dx * scale;
+      this.joystick.originY = point.y - dy * scale;
       dx *= scale;
       dy *= scale;
     }
@@ -155,6 +159,16 @@ export class InputController {
     }
     this.sink.onIntent(Math.atan2(y, x), 1);
   }
+}
+
+/**
+ * إحداثيات المؤشر تصل في فضاء الشاشة، والمحتوى قد يكون مُدارًا 90 درجة.
+ * بلا هذا التحويل يتحرك اللاعب عموديًا حين يسحب اللاعب أفقيًا.
+ */
+function toLocalPoint(clientX: number, clientY: number): { x: number; y: number } {
+  if (!isRotated()) return { x: clientX, y: clientY };
+  const width = window.visualViewport?.width ?? window.innerWidth;
+  return { x: clientY, y: width - clientX };
 }
 
 /** تدرّج خطي من أدنى سرعة عند حافة المنطقة الميتة إلى السرعة الكاملة عند الحافة. */

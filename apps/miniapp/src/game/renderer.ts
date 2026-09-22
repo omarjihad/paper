@@ -59,10 +59,11 @@ export class Renderer {
   }
 
   resize(): void {
-    const rect = this.canvas.getBoundingClientRect();
     this.dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-    this.width = Math.max(1, Math.round(rect.width));
-    this.height = Math.max(1, Math.round(rect.height));
+    // أبعاد التخطيط لا الصندوق المحيط: الأخير يعود مقلوبًا حين يكون
+    // المحتوى مُدارًا 90 درجة، فتُبنى اللوحة بدقة معكوسة.
+    this.width = Math.max(1, Math.round(this.canvas.offsetWidth || this.canvas.clientWidth));
+    this.height = Math.max(1, Math.round(this.canvas.offsetHeight || this.canvas.clientHeight));
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
