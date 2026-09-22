@@ -9,6 +9,7 @@ import type { Env } from './core/env.js';
 import { AppError } from './core/errors.js';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
 import { registerBotRoutes } from './modules/bot/bot.routes.js';
+import { registerClientErrorRoute } from './modules/diagnostics/client-error.routes.js';
 import type { TelegramBot } from './modules/bot/bot.service.js';
 import { registerMatchRoutes } from './modules/match/match.routes.js';
 import { MatchService } from './modules/match/match.service.js';
@@ -60,6 +61,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     bot: deps.bot ?? null,
     secretToken: deps.env.telegramWebhookSecret,
   });
+  await registerClientErrorRoute(app);
 
   if (existsSync(MINIAPP_DIST)) {
     await app.register(fastifyStatic, { root: MINIAPP_DIST, index: ['index.html'] });

@@ -1,6 +1,7 @@
 import type { AuthResponse, MatchStartResponse } from '@riqaa/shared';
 import { GameScreen, type RoundSummary } from './game/gameScreen.js';
 import { ApiClient, ApiError } from './net/api.js';
+import { reportClientError } from './net/report.js';
 import {
   getInitData,
   initTelegram,
@@ -31,13 +32,21 @@ export class App {
   constructor(private readonly root: HTMLElement) {}
 
   async boot(): Promise<void> {
-    initTelegram();
-    this.show(loadingState('جاري التحميل…'));
-
+    // المرحلة تُرسل مع أي خطأ، فيُعرف موضع الانهيار من سطر واحد في السجل.
+    let stage = 'بدء';
     try {
+      stage = 'تهيئة-تيليجرام';
+      initTelegram();
+
+      this.show(loadingState('جاري التحميل…'));
+
+      stage = 'مصادقة';
       this.session = await this.api.authenticate(getInitData());
+
+      stage = 'رسم-القائمة';
       this.showTab('home');
     } catch (error) {
+      if (!(error instanceof ApiError)) reportClientError(stage, error);
       this.showAuthError(error);
     }
   }
@@ -118,11 +127,13 @@ export class App {
           return;
         }
       } else {
+        if (!(error instanceof ApiError)) reportClientError('بدء-الجولة', error);
         this.show(
           errorState(
             'تعذّر بدء الجولة',
             error instanceof ApiError ? error.message : 'حدث خطأ غير متوقع.',
             () => void this.play(),
+            error instanceof ApiError ? undefined : describe(error),
           ),
         );
         return;
