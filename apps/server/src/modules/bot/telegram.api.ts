@@ -60,6 +60,10 @@ export class TelegramApi {
     return this.call<WebhookInfo>('getWebhookInfo');
   }
 
+  getMe(): Promise<{ id: number; username?: string; first_name?: string }> {
+    return this.call('getMe');
+  }
+
   private async call<T>(method: string, payload?: unknown): Promise<T> {
     let response: Response;
     try {

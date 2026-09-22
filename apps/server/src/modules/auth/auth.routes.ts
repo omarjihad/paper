@@ -4,7 +4,7 @@ import type { Env } from '../../core/env.js';
 import { notFound, unauthorized } from '../../core/errors.js';
 import type { PlayerRepository } from '../players/player.repository.js';
 import { issueToken, verifyToken } from './session.js';
-import { verifyInitData } from './telegram.js';
+import { summarizeInitData, verifyInitData } from './telegram.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -36,7 +36,16 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): 
     const body = (request.body ?? {}) as AuthRequest;
 
     if (body.initData) {
-      const { user } = verifyInitData(body.initData, env.telegramBotToken, env.initDataMaxAge);
+      let user;
+      try {
+        ({ user } = verifyInitData(body.initData, env.telegramBotToken, env.initDataMaxAge));
+      } catch (error) {
+        // بلا هذا السطر يكون فشل التحقق صامتًا تمامًا في سجلات الاستضافة.
+        request.log.warn(
+          `فشل التحقق من initData: ${(error as Error).message} | ${summarizeInitData(body.initData, env.telegramBotToken)}`,
+        );
+        throw error;
+      }
       const profile = await players.upsertOnLogin({
         telegramId: String(user.id),
         firstName: user.first_name,

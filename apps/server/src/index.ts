@@ -32,6 +32,16 @@ async function main(): Promise<void> {
 
   const app = await buildApp({ env, players, bot });
 
+  // هوية البوت في السجل: تكشف فورًا لو كان التوكن يخص بوتًا غير الذي تُفتح منه اللعبة.
+  if (env.telegramBotToken) {
+    try {
+      const me = await new TelegramApi(env.telegramBotToken).getMe();
+      console.log(`[riqaa] التوكن يخص البوت: @${me.username ?? '—'} (${me.id})`);
+    } catch (error) {
+      console.error(`[riqaa] تيليجرام رفض التوكن: ${(error as Error).message}`);
+    }
+  }
+
   if (!env.telegramBotToken) {
     app.log.warn(
       'TELEGRAM_BOT_TOKEN غير مضبوط: التحقق من هوية تيليجرام معطّل. اضبطه قبل النشر الحقيقي.',

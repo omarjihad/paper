@@ -36,16 +36,7 @@ export function verifyInitData(initData: string, botToken: string, maxAgeSeconds
   const hash = params.get('hash');
   if (!hash) throw unauthorized('init_data_invalid', 'بيانات تيليجرام غير مكتملة');
 
-  const pairs: string[] = [];
-  for (const [key, value] of params.entries()) {
-    if (key === 'hash' || key === 'signature') continue;
-    pairs.push(`${key}=${value}`);
-  }
-  pairs.sort();
-  const dataCheckString = pairs.join('\n');
-
-  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
-  const computed = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+  const computed = computeHash(params, botToken);
 
   if (!safeEqualHex(computed, hash)) {
     throw unauthorized('init_data_invalid', 'تعذّر التحقق من بيانات تيليجرام');
@@ -74,6 +65,47 @@ export function verifyInitData(initData: string, botToken: string, maxAgeSeconds
   }
 
   return { user, authDate };
+}
+
+/**
+ * سلسلة التحقق: كل الحقول عدا hash وsignature، مرتّبة أبجديًا **بالمفتاح**،
+ * بصيغة key=value ومفصولة بسطر جديد.
+ */
+function buildDataCheckString(params: URLSearchParams): string {
+  const pairs: Array<[string, string]> = [];
+  for (const [key, value] of params.entries()) {
+    if (key === 'hash' || key === 'signature') continue;
+    pairs.push([key, value]);
+  }
+  pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return pairs.map(([key, value]) => `${key}=${value}`).join('\n');
+}
+
+function computeHash(params: URLSearchParams, botToken: string): string {
+  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
+  return createHmac('sha256', secretKey).update(buildDataCheckString(params)).digest('hex');
+}
+
+/**
+ * ملخّص آمن للتشخيص عند فشل التحقق — بلا توكن وبلا بيانات المستخدم.
+ * طول التوكن يكشف المسافات الزائدة، والبصمتان تكشفان اختلاف البوت.
+ */
+export function summarizeInitData(initData: string, botToken: string): string {
+  try {
+    const params = new URLSearchParams(initData);
+    const keys = [...params.keys()].sort().join(',');
+    const authDate = Number(params.get('auth_date') ?? 0);
+    const age = authDate > 0 ? Math.floor(Date.now() / 1000) - authDate : -1;
+    const received = params.get('hash') ?? '';
+    const computed = botToken ? computeHash(params, botToken) : '';
+    return (
+      `الحقول=[${keys}] منذ_التوقيع=${age}ث ` +
+      `hash_المستلم=${received.slice(0, 10)}… hash_المحسوب=${computed.slice(0, 10)}… ` +
+      `طول_التوكن=${botToken.length}`
+    );
+  } catch {
+    return 'تعذّر تحليل initData';
+  }
 }
 
 function safeEqualHex(a: string, b: string): boolean {
