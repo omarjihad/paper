@@ -15,6 +15,8 @@ export interface TelegramUser {
 export interface VerifiedInitData {
   user: TelegramUser;
   authDate: number;
+  /** أي صيغة لسلسلة التحقق طابقت — للتشخيص فقط. */
+  variant: 'with-signature' | 'without-signature';
 }
 
 /**
@@ -36,9 +38,16 @@ export function verifyInitData(initData: string, botToken: string, maxAgeSeconds
   const hash = params.get('hash');
   if (!hash) throw unauthorized('init_data_invalid', 'بيانات تيليجرام غير مكتملة');
 
-  const computed = computeHash(params, botToken);
+  // الصيغة المعتمدة: كل الحقول عدا hash — بما فيها signature.
+  let variant: VerifiedInitData['variant'] | null = null;
+  if (safeEqualHex(computeHash(params, botToken, true), hash)) {
+    variant = 'with-signature';
+  } else if (params.has('signature') && safeEqualHex(computeHash(params, botToken, false), hash)) {
+    // احتياط: بعض العملاء لا يُدخلون signature في سلسلة HMAC.
+    variant = 'without-signature';
+  }
 
-  if (!safeEqualHex(computed, hash)) {
+  if (!variant) {
     throw unauthorized('init_data_invalid', 'تعذّر التحقق من بيانات تيليجرام');
   }
 
@@ -64,26 +73,32 @@ export function verifyInitData(initData: string, botToken: string, maxAgeSeconds
     throw unauthorized('init_data_invalid', 'بيانات المستخدم ناقصة');
   }
 
-  return { user, authDate };
+  return { user, authDate, variant };
 }
 
 /**
- * سلسلة التحقق: كل الحقول عدا hash وsignature، مرتّبة أبجديًا **بالمفتاح**،
+ * سلسلة التحقق: كل الحقول عدا hash، مرتّبة أبجديًا **بالمفتاح**،
  * بصيغة key=value ومفصولة بسطر جديد.
+ *
+ * حقل signature يبقى داخل السلسلة في فحص HMAC — استبعاده خاص بمسار
+ * التحقق الخارجي (Ed25519) وحده، واستبعاده هنا يكسر التحقق تمامًا.
  */
-function buildDataCheckString(params: URLSearchParams): string {
+function buildDataCheckString(params: URLSearchParams, includeSignature: boolean): string {
   const pairs: Array<[string, string]> = [];
   for (const [key, value] of params.entries()) {
-    if (key === 'hash' || key === 'signature') continue;
+    if (key === 'hash') continue;
+    if (key === 'signature' && !includeSignature) continue;
     pairs.push([key, value]);
   }
   pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return pairs.map(([key, value]) => `${key}=${value}`).join('\n');
 }
 
-function computeHash(params: URLSearchParams, botToken: string): string {
+function computeHash(params: URLSearchParams, botToken: string, includeSignature: boolean): string {
   const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
-  return createHmac('sha256', secretKey).update(buildDataCheckString(params)).digest('hex');
+  return createHmac('sha256', secretKey)
+    .update(buildDataCheckString(params, includeSignature))
+    .digest('hex');
 }
 
 /**
@@ -97,10 +112,12 @@ export function summarizeInitData(initData: string, botToken: string): string {
     const authDate = Number(params.get('auth_date') ?? 0);
     const age = authDate > 0 ? Math.floor(Date.now() / 1000) - authDate : -1;
     const received = params.get('hash') ?? '';
-    const computed = botToken ? computeHash(params, botToken) : '';
+    const withSignature = botToken ? computeHash(params, botToken, true) : '';
+    const withoutSignature = botToken ? computeHash(params, botToken, false) : '';
     return (
       `الحقول=[${keys}] منذ_التوقيع=${age}ث ` +
-      `hash_المستلم=${received.slice(0, 10)}… hash_المحسوب=${computed.slice(0, 10)}… ` +
+      `hash_المستلم=${received.slice(0, 10)}… ` +
+      `مع_signature=${withSignature.slice(0, 10)}… بدون_signature=${withoutSignature.slice(0, 10)}… ` +
       `طول_التوكن=${botToken.length}`
     );
   } catch {

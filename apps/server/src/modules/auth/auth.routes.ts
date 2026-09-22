@@ -38,7 +38,9 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): 
     if (body.initData) {
       let user;
       try {
-        ({ user } = verifyInitData(body.initData, env.telegramBotToken, env.initDataMaxAge));
+        const verified = verifyInitData(body.initData, env.telegramBotToken, env.initDataMaxAge);
+        user = verified.user;
+        request.log.debug(`تحقق ناجح من initData (صيغة ${verified.variant})`);
       } catch (error) {
         // بلا هذا السطر يكون فشل التحقق صامتًا تمامًا في سجلات الاستضافة.
         request.log.warn(
