@@ -57,6 +57,20 @@ declare global {
 
 const webApp: TelegramWebApp | null = window.Telegram?.WebApp ?? null;
 
+/**
+ * كل استدعاء لسكربت تيليجرام يمر من هنا.
+ * السكربت يرمي WebAppMethodUnsupported للدوال التي لا يدعمها إصدار العميل،
+ * و`?.` يحمي من غياب الدالة لا من رميها. بدون هذا الحاجز، فشل استدعاء
+ * تجميلي واحد كان يُسقط إقلاع اللعبة كله.
+ */
+function safely(label: string, action: () => void): void {
+  try {
+    action();
+  } catch (error) {
+    console.warn(`[رقعة] تجاهلت فشل ${label} في تيليجرام:`, error);
+  }
+}
+
 /** true فقط عندما تُفتح الصفحة فعلًا داخل تيليجرام (توجد initData موقَّعة). */
 export const isInsideTelegram = Boolean(webApp && webApp.initData && webApp.initData.length > 0);
 
@@ -75,8 +89,8 @@ export function applyColorScheme(): ColorScheme {
   const scheme = getColorScheme();
   document.documentElement.dataset.theme = scheme;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', FRAME_COLORS[scheme]);
-  webApp?.setHeaderColor?.(FRAME_COLORS[scheme]);
-  webApp?.setBackgroundColor?.(FRAME_COLORS[scheme]);
+  safely('setHeaderColor', () => webApp?.setHeaderColor?.(FRAME_COLORS[scheme]));
+  safely('setBackgroundColor', () => webApp?.setBackgroundColor?.(FRAME_COLORS[scheme]));
   return scheme;
 }
 
@@ -86,7 +100,10 @@ export function applyColorScheme(): ColorScheme {
  * وإلا امتدت الصفحة خارج الشاشة واختفى التنقل السفلي.
  */
 function syncViewportHeight(): void {
-  const reported = webApp?.viewportStableHeight ?? 0;
+  let reported = 0;
+  safely('viewportStableHeight', () => {
+    reported = webApp?.viewportStableHeight ?? 0;
+  });
   const windowHeight = window.visualViewport?.height ?? window.innerHeight;
   const height = reported > 0 ? Math.min(reported, windowHeight) : windowHeight;
   document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
@@ -103,13 +120,13 @@ export function initTelegram(): void {
   applyColorScheme();
   if (!webApp) return;
 
-  webApp.ready();
-  webApp.expand();
-  // يمنع إغلاق التطبيق بالسحب لأسفل أثناء استخدام عصا التحكم.
-  webApp.disableVerticalSwipes?.();
+  safely('ready', () => webApp.ready());
+  safely('expand', () => webApp.expand());
+  // يمنع إغلاق التطبيق بالسحب لأسفل أثناء استخدام عصا التحكم (نسخ 7.7+).
+  safely('disableVerticalSwipes', () => webApp.disableVerticalSwipes?.());
 
-  webApp.onEvent?.('themeChanged', () => applyColorScheme());
-  webApp.onEvent?.('viewportChanged', syncViewportHeight);
+  safely('onEvent(themeChanged)', () => webApp.onEvent?.('themeChanged', () => applyColorScheme()));
+  safely('onEvent(viewportChanged)', () => webApp.onEvent?.('viewportChanged', syncViewportHeight));
 }
 
 export function getInitData(): string {
@@ -136,18 +153,22 @@ let backHandler: (() => void) | null = null;
 export function setBackButton(handler: (() => void) | null): void {
   const button = webApp?.BackButton;
   if (!button) return;
-  if (backHandler) button.offClick(backHandler);
-  backHandler = handler;
-  if (handler) {
-    button.onClick(handler);
-    button.show();
-  } else {
-    button.hide();
-  }
+  safely('BackButton', () => {
+    if (backHandler) button.offClick(backHandler);
+    backHandler = handler;
+    if (handler) {
+      button.onClick(handler);
+      button.show();
+    } else {
+      button.hide();
+    }
+  });
 }
 
 export function setClosingConfirmation(enabled: boolean): void {
   if (!webApp) return;
-  if (enabled) webApp.enableClosingConfirmation?.();
-  else webApp.disableClosingConfirmation?.();
+  safely('ClosingConfirmation', () => {
+    if (enabled) webApp.enableClosingConfirmation?.();
+    else webApp.disableClosingConfirmation?.();
+  });
 }

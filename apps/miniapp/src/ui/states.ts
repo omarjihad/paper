@@ -22,12 +22,19 @@ export function matchLoadingState(): HTMLElement {
 }
 
 /** شاشة خطأ مع إمكانية إعادة المحاولة. */
-export function errorState(title: string, message: string, onRetry?: () => void): HTMLElement {
+export function errorState(
+  title: string,
+  message: string,
+  onRetry?: () => void,
+  /** تفصيل تقني للأخطاء غير المتوقعة — يجعل أي انهيار قابلًا للتشخيص من لقطة شاشة. */
+  detail?: string,
+): HTMLElement {
   return h('div', { class: 'screen center-state' }, [
     h('div', { class: 'state__title', text: title }),
     h('div', { class: 'state__text', text: message }),
     onRetry
       ? h('button', { class: 'btn btn--ghost', type: 'button', onclick: onRetry }, ['إعادة المحاولة'])
       : null,
+    detail ? h('div', { class: 'note', style: 'max-width:320px', text: detail }) : null,
   ]);
 }

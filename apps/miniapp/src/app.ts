@@ -92,6 +92,7 @@ export class App {
         'تعذّر بدء اللعبة',
         apiError?.message ?? 'حدث خطأ غير متوقع، حاول مرة أخرى.',
         () => void this.boot(),
+        apiError ? undefined : describe(error),
       ),
     );
   }
@@ -177,6 +178,12 @@ export class App {
     this.show(resultScreen(view, () => void this.play(), () => this.showTab('home')));
     setBackButton(() => this.showTab('home'));
   }
+}
+
+/** وصف مختصر لخطأ غير متوقع، بلا مسار ملفات طويل. */
+function describe(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`.slice(0, 160);
+  return String(error).slice(0, 160);
 }
 
 function delay(ms: number): Promise<void> {
