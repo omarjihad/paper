@@ -12,20 +12,48 @@ const GRADIENTS: ReadonlyArray<[string, string]> = [
 
 /** صورة رمزية مولّدة: حرف الاسم فوق تدرّج ثابت مشتق من المعرّف. */
 export function generateAvatar(profile: PlayerProfile): string {
-  const initial = (profile.firstName.trim()[0] ?? '؟').toUpperCase();
   const seed = hash(profile.telegramId);
   const [from, to] = GRADIENTS[seed % GRADIENTS.length];
+  const initial = firstCharacter(profile.firstName);
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+  const background = `<rect width="120" height="120" rx="34" fill="url(#g)"/>`;
+  const gradient = `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/>
-  </linearGradient></defs>
-  <rect width="120" height="120" rx="34" fill="url(#g)"/>
-  <text x="60" y="60" font-family="Cairo, sans-serif" font-size="54" font-weight="700"
-        fill="#0E1420" text-anchor="middle" dominant-baseline="central">${escapeXml(initial)}</text>
-</svg>`;
+  </linearGradient></defs>`;
+  const label = `<text x="60" y="60" font-family="Cairo, sans-serif" font-size="54" font-weight="700"
+        fill="#0E1420" text-anchor="middle" dominant-baseline="central">${escapeXml(initial)}</text>`;
 
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  const withLabel = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">${gradient}${background}${label}</svg>`;
+  const plain = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">${gradient}${background}</svg>`;
+
+  // حزام أمان: أي محرف يعجز encodeURIComponent عنه يُسقط الحرف لا الصورة.
+  return toDataUri(withLabel) ?? toDataUri(plain) ?? TRANSPARENT_PIXEL;
+}
+
+const TRANSPARENT_PIXEL =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+function toDataUri(svg: string): string | null {
+  try {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * أول محرف حقيقي من الاسم.
+ * القراءة بالنقاط البرمجية لا بوحدات الترميز: الأسماء التي تبدأ بإيموجي
+ * تتكوّن من زوج بديل، وأخذ نصفه يُنتج نصفًا يتيمًا يكسر encodeURIComponent.
+ */
+function firstCharacter(name: string): string {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return '؟';
+  const first = Array.from(trimmed)[0] ?? '؟';
+  // نصف بديل يتيم (اسم مشوّه أصلًا) — لا نعرضه إطلاقًا.
+  const code = first.codePointAt(0) ?? 0;
+  if (code >= 0xd800 && code <= 0xdfff) return '؟';
+  return first.toUpperCase();
 }
 
 /** صورة تيليجرام إن وُجدت، وإلا الصورة المولّدة — مع تراجع تلقائي عند فشل التحميل. */
