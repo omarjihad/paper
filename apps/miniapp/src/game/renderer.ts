@@ -68,7 +68,10 @@ export class Renderer {
     this.canvas.height = Math.round(this.height * this.dpr);
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.scale = Math.min(this.width, this.height) / (VISIBLE_CELLS * this.engine.config.cellSize);
-    this.minimapSize = Math.round(Math.min(112, Math.max(72, Math.min(this.width, this.height) * 0.26)));
+    // على شاشة قصيرة (وضع العرض) لا يجوز أن تلتهم الخريطة ربع الارتفاع.
+    const shortSide = Math.min(this.width, this.height);
+    const ratio = this.width > this.height ? 0.2 : 0.26;
+    this.minimapSize = Math.round(Math.min(104, Math.max(62, shortSide * ratio)));
   }
 
   draw(joystick: JoystickState, dt = 0): void {

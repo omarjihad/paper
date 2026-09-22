@@ -49,7 +49,7 @@ export function menuPage(
     ],
   );
 
-  const page = h('div', { class: 'page' }, [
+  const page = h('div', { class: 'page page--menu' }, [
     h('div', { class: 'brand' }, [
       h('img', { class: 'brand__logo', src: '/logo.svg', alt: 'شعار رقعة', width: '44', height: '44' }),
       h('div', {}, [

@@ -10,7 +10,7 @@ import { PLAYER_LEVEL, displayName, formatPercent, maskedId } from './player.js'
 export function profilePage(session: AuthResponse): HTMLElement {
   const player = session.player;
 
-  return h('div', { class: 'page' }, [
+  return h('div', { class: 'page page--profile' }, [
     h('div', { class: 'card' }, [
       h('div', { class: 'profile-head' }, [
         avatarElement(player, 'avatar avatar--lg'),
