@@ -1,6 +1,6 @@
 import { createMatch, type Actor, type GameEvent, type Match } from '@riqaa/game-core';
 import { ACTOR_COLORS, KILL_REWARD_COINS, type MatchStartResponse, type RoundOutcome } from '@riqaa/shared';
-import { enterLandscapeMode, exitLandscapeMode, haptic, onViewportChange } from '../telegram.js';
+import { haptic, onViewportChange, requestLandscape } from '../telegram.js';
 import { h } from '../ui/dom.js';
 import { Leaderboard, type LeaderRow } from '../ui/leaderboard.js';
 import { InputController } from './input.js';
@@ -106,8 +106,8 @@ export class GameScreen {
 
   mount(root: HTMLElement): void {
     root.append(this.element);
-    // اللعب بالعرض: ملء الشاشة وقفل الاتجاه إن كان العميل يدعمهما.
-    enterLandscapeMode();
+    // محاولة أخيرة للعرض إن لم ينجح التسلسل عند الإقلاع أو عند الضغط.
+    requestLandscape();
 
     this.renderer.resize();
     this.input.attach();
@@ -131,7 +131,7 @@ export class GameScreen {
     this.stopViewportWatch = null;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
-    exitLandscapeMode();
+    // لا نفك القفل: التطبيق كله يعمل بالعرض، لا الجولة وحدها.
     this.element.remove();
   }
 

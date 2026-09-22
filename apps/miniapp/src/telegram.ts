@@ -48,7 +48,8 @@ interface TelegramWebApp {
   isFullscreen?: boolean;
   requestFullscreen?(): void;
   exitFullscreen?(): void;
-  lockOrientation?(orientation: 'portrait' | 'landscape'): void;
+  /** بلا معاملات: تُثبّت الاتجاه الحالي ولا تختار اتجاهًا. */
+  lockOrientation?(): void;
   unlockOrientation?(): void;
   safeAreaInset?: TelegramInset;
   contentSafeAreaInset?: TelegramInset;
@@ -149,34 +150,130 @@ export function isLandscape(): boolean {
   return width > height;
 }
 
-/**
- * وضع اللعب بالعرض: ملء الشاشة ثم قفل الاتجاه — كلاهما Bot API 8.0.
- * غير مدعوم أو مرفوض ⇐ تستمر اللعبة كما هي بلا أي رسالة للمستخدم.
+/* ===================== وضع العرض =====================
+ * ملاحظة جوهرية: lockOrientation() في تيليجرام **لا تختار** اتجاهًا،
+ * بل تُثبّت الاتجاه الحالي. استدعاؤها والشاشة طولية يُجمّد الطول —
+ * عكس المطلوب تمامًا. لذلك لا تُستدعى إلا بعد أن نصبح بالعرض فعلًا.
+ *
+ * الذي يستطيع فرض العرض هو screen.orientation.lock('landscape')،
+ * وهو يحتاج عادةً أن تكون الصفحة في ملء الشاشة، وملء شاشة DOM يحتاج
+ * سياق لمسة من المستخدم. لذلك نطلب التسلسل عند الإقلاع وعند الضغط معًا.
  */
-export function enterLandscapeMode(): void {
-  safely('requestFullscreen', () => webApp?.requestFullscreen?.());
-  safely('lockOrientation', () => webApp?.lockOrientation?.('landscape'));
-  // احتياط للمتصفح خارج تيليجرام أو لنسخه الأقدم.
-  safely('screen.orientation.lock', () => {
-    const orientation = screen.orientation as ScreenOrientation & {
-      lock?: (value: string) => Promise<void>;
-    };
-    void orientation?.lock?.('landscape')?.catch(() => undefined);
+
+let landscapeWanted = false;
+let landscapeLocked = false;
+let pendingAttempts = 0;
+
+type LockableOrientation = ScreenOrientation & {
+  lock?: (value: string) => Promise<void>;
+  unlock?: () => void;
+};
+
+function orientationApi(): LockableOrientation | null {
+  try {
+    return (screen?.orientation as LockableOrientation) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** يثبّت الاتجاه الحالي عبر تيليجرام — بشرط أن نكون بالعرض. */
+function keepLandscapeLocked(): void {
+  if (!landscapeWanted || landscapeLocked || !isLandscape()) return;
+  safely('lockOrientation', () => webApp?.lockOrientation?.());
+  landscapeLocked = true;
+}
+
+/** محاولة فرض العرض عبر واجهة المتصفح. تُعيد true عند النجاح. */
+async function lockToLandscape(): Promise<boolean> {
+  const orientation = orientationApi();
+  if (!orientation?.lock) return false;
+  try {
+    await orientation.lock('landscape');
+    keepLandscapeLocked();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** ملء شاشة DOM — ينجح فقط داخل سياق لمسة، وفشله غير مؤثر. */
+function requestDocumentFullscreen(): void {
+  const element = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void;
+  };
+  safely('document.requestFullscreen', () => {
+    const result = element.requestFullscreen?.({ navigationUI: 'hide' });
+    if (result && typeof result.catch === 'function') void result.catch(() => undefined);
+    else element.webkitRequestFullscreen?.();
   });
+}
+
+/**
+ * يبدأ تسلسل الدخول إلى العرض. آمن للاستدعاء أكثر من مرة.
+ * الترتيب: ready (تمت في التهيئة) ← ملء شاشة تيليجرام ← ملء شاشة DOM
+ * ← قفل العرض ← تثبيت بقفل تيليجرام بعد التأكد أننا بالعرض.
+ */
+export function requestLandscape(): void {
+  landscapeWanted = true;
+
+  safely('requestFullscreen', () => webApp?.requestFullscreen?.());
+  requestDocumentFullscreen();
+
+  void lockToLandscape().then((locked) => {
+    syncViewportHeight();
+    syncSafeAreaInsets();
+    if (locked || pendingAttempts >= 4) return;
+    // ملء الشاشة قد يتأخر: نعيد المحاولة قليلًا بدل افتراض التنفيذ الفوري.
+    pendingAttempts++;
+    window.setTimeout(() => {
+      if (landscapeWanted && !landscapeLocked) requestLandscapeRetry();
+    }, 260 * pendingAttempts);
+  });
+}
+
+function requestLandscapeRetry(): void {
+  void lockToLandscape().then((locked) => {
+    syncViewportHeight();
+    syncSafeAreaInsets();
+    if (locked || pendingAttempts >= 4) return;
+    pendingAttempts++;
+    window.setTimeout(() => {
+      if (landscapeWanted && !landscapeLocked) requestLandscapeRetry();
+    }, 260 * pendingAttempts);
+  });
+}
+
+/** يفك القفل ويعيد الحالة الطبيعية. */
+export function releaseLandscape(): void {
+  landscapeWanted = false;
+  landscapeLocked = false;
+  pendingAttempts = 0;
+  safely('unlockOrientation', () => webApp?.unlockOrientation?.());
+  safely('screen.orientation.unlock', () => orientationApi()?.unlock?.());
+  safely('document.exitFullscreen', () => {
+    const result = document.exitFullscreen?.();
+    if (result && typeof result.catch === 'function') void result.catch(() => undefined);
+  });
+  safely('exitFullscreen', () => webApp?.exitFullscreen?.());
   syncViewportHeight();
   syncSafeAreaInsets();
 }
 
-/** إعادة الحالة الطبيعية عند مغادرة اللعب. */
-export function exitLandscapeMode(): void {
-  safely('unlockOrientation', () => webApp?.unlockOrientation?.());
-  safely('exitFullscreen', () => webApp?.exitFullscreen?.());
-  safely('screen.orientation.unlock', () => {
-    const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
-    orientation?.unlock?.();
-  });
+/**
+ * يُستدعى عند كل تغيّر في ملء الشاشة أو الاتجاه أو المقاس:
+ * يعيد قياس الواجهة، ويكمل ما تبقّى من تسلسل العرض.
+ */
+function onEnvironmentChanged(): void {
   syncViewportHeight();
   syncSafeAreaInsets();
+  if (!landscapeWanted) return;
+  if (isLandscape()) {
+    // صرنا بالعرض (بالقفل أو بتدوير المستخدم) — نثبّته.
+    keepLandscapeLocked();
+  } else if (!landscapeLocked) {
+    void lockToLandscape();
+  }
 }
 
 /** يشترك في كل ما قد يغيّر أبعاد الواجهة الفعلية. */
@@ -223,6 +320,17 @@ export function initTelegram(): void {
   safely('onEvent(contentSafeAreaChanged)', () =>
     webApp.onEvent?.('contentSafeAreaChanged', syncSafeAreaInsets),
   );
+
+  // كل ما قد يعني أن ملء الشاشة أو الاتجاه تغيّر.
+  for (const event of ['fullscreenChanged', 'fullscreenFailed', 'orientationChanged']) {
+    safely(`onEvent(${event})`, () => webApp.onEvent?.(event, onEnvironmentChanged));
+  }
+  document.addEventListener('fullscreenchange', onEnvironmentChanged);
+  window.addEventListener('orientationchange', onEnvironmentChanged);
+  window.visualViewport?.addEventListener('resize', onEnvironmentChanged);
+
+  // العرض مطلوب منذ لحظة فتح التطبيق، لا عند بدء الجولة فقط.
+  requestLandscape();
 }
 
 export function getInitData(): string {

@@ -6,6 +6,7 @@ import {
   getInitData,
   initTelegram,
   isInsideTelegram,
+  requestLandscape,
   setBackButton,
   setClosingConfirmation,
 } from './telegram.js';
@@ -109,6 +110,10 @@ export class App {
   // -------------------------------------------------------------- الجولة
 
   private async play(): Promise<void> {
+    // أول سطر في معالج الضغط: سياق لمسة المستخدم ما زال قائمًا هنا،
+    // وملء شاشة المتصفح لا يُسمح به خارجه. أي تأخير يُفقد هذا السياق.
+    requestLandscape();
+
     this.show(matchLoadingState());
     setBackButton(null);
 
