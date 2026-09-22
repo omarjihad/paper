@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@riqaa/shared';
 import { buildApp } from './app.js';
 import { assertProductionConfig, loadEnv, type Env } from './core/env.js';
 import { createPlayerRepository } from './infra/repository.factory.js';
@@ -8,6 +9,7 @@ import { TelegramApi } from './modules/bot/telegram.api.js';
 const WEBHOOK_PATH = '/api/telegram/webhook';
 
 async function main(): Promise<void> {
+  console.log(`[riqaa] نسخة الخادم: ${APP_VERSION}`);
   const env = loadEnv();
 
   const problems = assertProductionConfig(env);

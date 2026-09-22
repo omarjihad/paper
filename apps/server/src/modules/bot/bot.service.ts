@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@riqaa/shared';
 import { TelegramApi, TelegramApiError, type SendMessageParams } from './telegram.api.js';
 
 /** الحد الأدنى من حقول التحديث التي نستخدمها فعلًا. */
@@ -65,6 +66,8 @@ export class TelegramBot {
       `${RLM}داخل أرضك أنت آمن، وخارجها مسارك مكشوف.`,
       '',
       `${RLM}اضغط الزر بالأسفل لبدء اللعب.`,
+      '',
+      `${RLM}النسخة ${APP_VERSION}`,
     ].join('\n');
 
     const isPrivate = chatType === undefined || chatType === 'private';

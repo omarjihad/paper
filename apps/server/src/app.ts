@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { APP_VERSION } from '@riqaa/shared';
 import type { Env } from './core/env.js';
 import { AppError } from './core/errors.js';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
@@ -46,6 +47,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.get('/api/health', async () => ({
     ok: true,
+    version: APP_VERSION,
     storage: deps.players.kind,
     telegram: deps.env.telegramBotToken ? 'configured' : 'missing',
     bot: deps.bot ? 'enabled' : 'disabled',
