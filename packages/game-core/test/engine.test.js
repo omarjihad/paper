@@ -125,9 +125,23 @@ test('قطع مسار خصم يقتله ويعيده لاحقًا', () => {
   engine.setController(1, { actorId: 1, decide: () => 0 });
   engine.setController(2, { actorId: 2, decide: () => null });
 
-  run(engine, 1);
+  const events = [];
+  const steps = Math.round(1 / config.tickSeconds);
+  for (let i = 0; i < steps; i++) {
+    engine.step(config.tickSeconds);
+    for (const event of engine.events) events.push(event);
+    engine.events.length = 0;
+  }
   assert.equal(prey.alive, false, 'صاحب المسار المقطوع يخرج من الجولة');
   assert.equal(hunter.kills, 1);
+
+  const kill = events.find((event) => event.type === 'kill');
+  assert.ok(kill, 'يجب أن يُطلق حدث قتل');
+  assert.equal(kill.killerId, hunter.id);
+  assert.equal(kill.victimId, prey.id);
+  // الإحداثيات = نقطة القطع التي يراها اللاعب، لا موضع الضحية البعيد.
+  assert.equal(kill.x, engine.grid.xOf(trailIndex) + 0.5, 'إحداثي س لنقطة القطع');
+  assert.equal(kill.y, engine.grid.yOf(trailIndex) + 0.5, 'إحداثي ص لنقطة القطع');
   assert.equal(engine.grid.trail[trailIndex], 0, 'يُنظَّف المسار بعد الموت');
 
   run(engine, 3);

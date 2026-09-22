@@ -18,6 +18,13 @@ export interface TelegramThemeParams {
   secondary_bg_color?: string;
 }
 
+export interface TelegramInset {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
 interface TelegramWebApp {
   initData: string;
   initDataUnsafe: { user?: TelegramUserUnsafe };
@@ -37,6 +44,14 @@ interface TelegramWebApp {
   disableVerticalSwipes?(): void;
   enableClosingConfirmation?(): void;
   disableClosingConfirmation?(): void;
+  /** Bot API 8.0 — قد تكون غائبة أو ترمي في النسخ الأقدم. */
+  isFullscreen?: boolean;
+  requestFullscreen?(): void;
+  exitFullscreen?(): void;
+  lockOrientation?(orientation: 'portrait' | 'landscape'): void;
+  unlockOrientation?(): void;
+  safeAreaInset?: TelegramInset;
+  contentSafeAreaInset?: TelegramInset;
   HapticFeedback?: {
     impactOccurred(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void;
     notificationOccurred(type: 'error' | 'success' | 'warning'): void;
@@ -109,8 +124,85 @@ function syncViewportHeight(): void {
   document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
 }
 
+/** المساحات الآمنة: قيم تيليجرام إن توفّرت، وإلا تبقى قيم env() في الأنماط. */
+function syncSafeAreaInsets(): void {
+  const root = document.documentElement;
+  const outer = webApp?.safeAreaInset;
+  const inner = webApp?.contentSafeAreaInset;
+  if (!outer && !inner) return;
+
+  const merge = (side: keyof TelegramInset): number =>
+    Math.max(0, outer?.[side] ?? 0) + Math.max(0, inner?.[side] ?? 0);
+
+  safely('safeAreaInset', () => {
+    root.style.setProperty('--tg-safe-top', `${merge('top')}px`);
+    root.style.setProperty('--tg-safe-right', `${merge('right')}px`);
+    root.style.setProperty('--tg-safe-bottom', `${merge('bottom')}px`);
+    root.style.setProperty('--tg-safe-left', `${merge('left')}px`);
+  });
+}
+
+/** هل الواجهة الآن أعرض من طولها؟ */
+export function isLandscape(): boolean {
+  const width = window.visualViewport?.width ?? window.innerWidth;
+  const height = window.visualViewport?.height ?? window.innerHeight;
+  return width > height;
+}
+
+/**
+ * وضع اللعب بالعرض: ملء الشاشة ثم قفل الاتجاه — كلاهما Bot API 8.0.
+ * غير مدعوم أو مرفوض ⇐ تستمر اللعبة كما هي بلا أي رسالة للمستخدم.
+ */
+export function enterLandscapeMode(): void {
+  safely('requestFullscreen', () => webApp?.requestFullscreen?.());
+  safely('lockOrientation', () => webApp?.lockOrientation?.('landscape'));
+  // احتياط للمتصفح خارج تيليجرام أو لنسخه الأقدم.
+  safely('screen.orientation.lock', () => {
+    const orientation = screen.orientation as ScreenOrientation & {
+      lock?: (value: string) => Promise<void>;
+    };
+    void orientation?.lock?.('landscape')?.catch(() => undefined);
+  });
+  syncViewportHeight();
+  syncSafeAreaInsets();
+}
+
+/** إعادة الحالة الطبيعية عند مغادرة اللعب. */
+export function exitLandscapeMode(): void {
+  safely('unlockOrientation', () => webApp?.unlockOrientation?.());
+  safely('exitFullscreen', () => webApp?.exitFullscreen?.());
+  safely('screen.orientation.unlock', () => {
+    const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
+    orientation?.unlock?.();
+  });
+  syncViewportHeight();
+  syncSafeAreaInsets();
+}
+
+/** يشترك في كل ما قد يغيّر أبعاد الواجهة الفعلية. */
+export function onViewportChange(handler: () => void): () => void {
+  const wrapped = () => {
+    syncViewportHeight();
+    syncSafeAreaInsets();
+    handler();
+  };
+  window.addEventListener('resize', wrapped);
+  window.addEventListener('orientationchange', wrapped);
+  window.visualViewport?.addEventListener('resize', wrapped);
+  const events = ['viewportChanged', 'fullscreenChanged', 'safeAreaChanged', 'contentSafeAreaChanged'];
+  for (const event of events) safely(`onEvent(${event})`, () => webApp?.onEvent?.(event, wrapped));
+
+  return () => {
+    window.removeEventListener('resize', wrapped);
+    window.removeEventListener('orientationchange', wrapped);
+    window.visualViewport?.removeEventListener('resize', wrapped);
+    for (const event of events) safely(`offEvent(${event})`, () => webApp?.offEvent?.(event, wrapped));
+  };
+}
+
 export function initTelegram(): void {
   syncViewportHeight();
+  syncSafeAreaInsets();
   // إعادة القياس بعد تطبيق meta viewport وعند أي تغيّر لاحق.
   window.addEventListener('load', syncViewportHeight);
   window.addEventListener('resize', syncViewportHeight);
@@ -127,6 +219,10 @@ export function initTelegram(): void {
 
   safely('onEvent(themeChanged)', () => webApp.onEvent?.('themeChanged', () => applyColorScheme()));
   safely('onEvent(viewportChanged)', () => webApp.onEvent?.('viewportChanged', syncViewportHeight));
+  safely('onEvent(safeAreaChanged)', () => webApp.onEvent?.('safeAreaChanged', syncSafeAreaInsets));
+  safely('onEvent(contentSafeAreaChanged)', () =>
+    webApp.onEvent?.('contentSafeAreaChanged', syncSafeAreaInsets),
+  );
 }
 
 export function getInitData(): string {

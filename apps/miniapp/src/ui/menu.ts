@@ -51,7 +51,7 @@ export function menuPage(
 
   const page = h('div', { class: 'page' }, [
     h('div', { class: 'brand' }, [
-      h('div', { class: 'brand__mark' }),
+      h('img', { class: 'brand__logo', src: '/logo.svg', alt: 'شعار رقعة', width: '44', height: '44' }),
       h('div', {}, [
         h('div', { class: 'brand__name', text: 'رقعة' }),
         h('div', { class: 'brand__tag', text: 'سيطر على أكبر مساحة' }),

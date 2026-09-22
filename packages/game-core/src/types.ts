@@ -75,7 +75,8 @@ export type EndReason = 'eliminated' | 'timeup' | 'quit' | 'lastStanding';
 
 export type GameEvent =
   | { type: 'capture'; actorId: number; gained: number }
-  | { type: 'kill'; killerId: number; victimId: number }
+  /** x وy = نقطة القطع (حيث وقع الحدث)، لا موضع الضحية الذي قد يكون بعيدًا. */
+  | { type: 'kill'; killerId: number; victimId: number; x: number; y: number }
   | { type: 'death'; actorId: number; cause: 'self' | 'trail' | 'collision' | 'wiped' }
   | { type: 'respawn'; actorId: number }
   | { type: 'end'; reason: EndReason };

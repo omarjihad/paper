@@ -284,7 +284,13 @@ export class GameEngine implements WorldView {
       const victim = this.byId.get(trailOwner);
       if (victim && victim.alive) {
         actor.kills++;
-        this.events.push({ type: 'kill', killerId: actor.id, victimId: victim.id });
+        this.events.push({
+          type: 'kill',
+          killerId: actor.id,
+          victimId: victim.id,
+          x: nx + 0.5,
+          y: ny + 0.5,
+        });
         this.killActor(victim, 'trail');
       }
     }

@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V5';
+export const APP_VERSION = 'V6';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -115,6 +115,12 @@ export const ACTOR_COLORS: readonly string[] = [
   '#38D6D6',
   '#C77DFF',
 ];
+
+/**
+ * مكافأة إخراج خصم من الجولة، بالعملات.
+ * موضع واحد للتعديل — لا تكرّر الرقم في أي مكان آخر.
+ */
+export const KILL_REWARD_COINS = 10;
 
 export const DEFAULT_MATCH_CONFIG: MatchConfig = {
   gridWidth: 150,

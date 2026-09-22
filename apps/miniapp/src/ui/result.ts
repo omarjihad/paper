@@ -7,6 +7,8 @@ export interface ResultView {
   participants: number;
   bestAreaPercent: number;
   outcome: RoundOutcome;
+  /** عملات هذه الجولة. */
+  coins?: number;
   /** رسالة تظهر إن تعذّر حفظ النتيجة على الخادم. */
   warning?: string;
 }
@@ -33,6 +35,7 @@ export function resultScreen(
         resultRow('المساحة', `${view.areaPercent.toFixed(2)}٪`),
         resultRow('المركز', `${view.rank} من ${view.participants}`),
         resultRow('أفضل مساحة', `${view.bestAreaPercent.toFixed(2)}٪`),
+        view.coins ? coinRow(view.coins) : null,
       ]),
 
       view.warning ? h('div', { class: 'note', text: view.warning }) : null,
@@ -41,6 +44,17 @@ export function resultScreen(
         h('button', { class: 'btn', type: 'button', onclick: onReplay }, ['العب مرة أخرى']),
         h('button', { class: 'btn btn--ghost', type: 'button', onclick: onHome }, ['الرئيسية']),
       ]),
+    ]),
+  ]);
+}
+
+/** عملات الجولة مع أيقونة العملة. */
+function coinRow(coins: number): HTMLElement {
+  return h('div', { class: 'result__row' }, [
+    h('div', { text: 'عملات الجولة' }),
+    h('b', { class: 'result__coins' }, [
+      h('img', { class: 'result__coin-icon', src: '/game-coin.svg', alt: '' }),
+      h('span', { text: `+${coins}` }),
     ]),
   ]);
 }

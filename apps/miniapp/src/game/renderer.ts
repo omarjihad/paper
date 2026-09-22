@@ -1,12 +1,17 @@
 import type { GameEngine } from '@riqaa/game-core';
 import { ACTOR_COLORS } from '@riqaa/shared';
+import { Effects } from './effects.js';
 import type { JoystickState } from './input.js';
+import { Minimap } from './minimap.js';
 
 /** عدد الخلايا الظاهرة على البُعد الأصغر للشاشة — يضبط مستوى التقريب. */
 const VISIBLE_CELLS = 30;
 const MAX_DPR = 2;
 /** ارتفاع مركز العصا الساكنة عن أسفل الشاشة. */
 const RESTING_JOYSTICK_BOTTOM = 112;
+/** سرعة لحاق الكاميرا باللاعب (1/ثانية) — أكبر = أشد التصاقًا. */
+const CAMERA_FOLLOW = 12;
+const MINIMAP_MARGIN = 14;
 
 /**
  * راسم Canvas 2D.
@@ -25,6 +30,16 @@ export class Renderer {
   private readonly trailColor: string[] = [];
   private readonly headColor: string[] = [];
 
+  /** مؤثرات القتل — يملؤها المستوى الأعلى عند وصول الأحداث. */
+  readonly effects = new Effects();
+  private readonly minimap: Minimap;
+  private minimapSize = 92;
+
+  /** موضع الكاميرا الحالي (بوحدة الخلية) — يلاحق اللاعب بنعومة. */
+  private cameraX = 0;
+  private cameraY = 0;
+  private cameraReady = false;
+
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly engine: GameEngine,
@@ -39,6 +54,7 @@ export class Renderer {
       this.trailColor[actor.id] = withAlpha(base, 0.85);
       this.headColor[actor.id] = base;
     }
+    this.minimap = new Minimap(engine, (id) => this.headColor[id] ?? '#8fa0b8');
     this.resize();
   }
 
@@ -51,17 +67,30 @@ export class Renderer {
     this.canvas.height = Math.round(this.height * this.dpr);
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.scale = Math.min(this.width, this.height) / (VISIBLE_CELLS * this.engine.config.cellSize);
+    this.minimapSize = Math.round(Math.min(112, Math.max(72, Math.min(this.width, this.height) * 0.26)));
   }
 
-  draw(joystick: JoystickState): void {
+  draw(joystick: JoystickState, dt = 0): void {
     const { ctx, engine } = this;
     const cell = engine.config.cellSize * this.scale;
 
     const focus = engine.human ?? engine.actors[0];
-    const cameraX = engine.renderX(focus) * cell;
-    const cameraY = engine.renderY(focus) * cell;
-    const offsetX = this.width / 2 - cameraX;
-    const offsetY = this.height / 2 - cameraY;
+    const targetX = engine.renderX(focus);
+    const targetY = engine.renderY(focus);
+
+    // لحاق أسّي مستقل عن معدل الإطارات: متابعة ناعمة بلا اهتزاز.
+    if (!this.cameraReady || dt <= 0) {
+      this.cameraX = targetX;
+      this.cameraY = targetY;
+      this.cameraReady = true;
+    } else {
+      const k = 1 - Math.exp(-dt * CAMERA_FOLLOW);
+      this.cameraX += (targetX - this.cameraX) * k;
+      this.cameraY += (targetY - this.cameraY) * k;
+    }
+
+    const offsetX = this.width / 2 - this.cameraX * cell;
+    const offsetY = this.height / 2 - this.cameraY * cell;
 
     ctx.fillStyle = '#0a0f18';
     ctx.fillRect(0, 0, this.width, this.height);
@@ -80,10 +109,39 @@ export class Renderer {
     this.drawGrid(offsetX, offsetY, cell, minX, minY, maxX, maxY);
     this.drawTerritories(offsetX, offsetY, cell, minX, minY, maxX, maxY);
     this.drawTrails(offsetX, offsetY, cell, minX, minY, maxX, maxY);
+
+    this.effects.update(dt);
+    this.effects.drawWorld(ctx, offsetX, offsetY, cell);
+
     this.drawActors(offsetX, offsetY, cell);
     this.drawBorder(offsetX, offsetY, worldW, worldH);
+    this.effects.drawLabels(ctx, offsetX, offsetY, cell);
+    this.effects.drawFlash(ctx, this.width, this.height);
 
+    this.drawMinimap(cell);
     this.drawJoystick(joystick);
+  }
+
+  /** الخريطة المصغّرة في الزاوية السفلية، بعيدًا عن مكان الإبهام. */
+  private drawMinimap(cell: number): void {
+    const inset = readInset();
+    const size = this.minimapSize;
+    const x = MINIMAP_MARGIN + inset.left;
+    const y = this.height - size - MINIMAP_MARGIN - inset.bottom;
+
+    this.minimap.draw(
+      this.ctx,
+      x,
+      y,
+      size,
+      {
+        x: this.cameraX,
+        y: this.cameraY,
+        cellsWide: this.width / cell,
+        cellsHigh: this.height / cell,
+      },
+      performance.now(),
+    );
   }
 
   private drawGrid(
@@ -217,7 +275,9 @@ export class Renderer {
     const ctx = this.ctx;
     const resting = !joystick.active;
 
-    const baseX = resting ? this.width / 2 : joystick.originX;
+    // بالعرض تكون العصا الساكنة قرب الإبهام الأيمن، وبالطول في المنتصف.
+    const landscape = this.width > this.height;
+    const baseX = resting ? (landscape ? this.width - 120 : this.width / 2) : joystick.originX;
     const baseY = resting ? this.height - RESTING_JOYSTICK_BOTTOM : joystick.originY;
     const knobX = resting ? baseX : joystick.knobX;
     const knobY = resting ? baseY : joystick.knobY;
@@ -261,4 +321,14 @@ function withAlpha(hex: string, alpha: number): string {
   const g = parseInt(value.slice(2, 4), 16);
   const b = parseInt(value.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/** المساحات الآمنة التي يضبطها تيليجرام — تُقرأ من متغيّرات CSS. */
+function readInset(): { left: number; bottom: number } {
+  const style = getComputedStyle(document.documentElement);
+  const read = (name: string): number => {
+    const value = parseFloat(style.getPropertyValue(name));
+    return Number.isFinite(value) ? value : 0;
+  };
+  return { left: read('--tg-safe-left'), bottom: read('--tg-safe-bottom') };
 }

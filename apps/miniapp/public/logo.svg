@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="شعار رقعة">
+  <title>رقعة</title>
+  <defs>
+    <linearGradient id="riqaa-land" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4DF0B5"/>
+      <stop offset="1" stop-color="#17B980"/>
+    </linearGradient>
+    <linearGradient id="riqaa-claim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9C86FF"/>
+      <stop offset="1" stop-color="#6A47F5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- الرقعة الأساسية: أرض مملوكة -->
+  <rect x="4" y="4" width="38" height="38" rx="11" fill="url(#riqaa-land)"/>
+  <!-- الرقعة المضمومة حديثًا -->
+  <rect x="28" y="28" width="32" height="32" rx="10" fill="url(#riqaa-claim)"/>
+  <!-- فاصل يفصل الرقعتين بصريًا مهما كانت الخلفية -->
+  <path d="M28 42 H42 V28" fill="none" stroke="#0E1420" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- المسار الذي أغلق الحلقة -->
+  <path d="M13 33 V13 H33" fill="none" stroke="#0E1420" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+</svg>

@@ -148,6 +148,7 @@ export class App {
       descriptor,
       (summary) => void this.finishRound(summary),
       () => this.showTab('home'),
+      this.session?.player.avatarUrl ?? null,
     );
     this.game.mount(this.root);
     setBackButton(() => this.game?.quit());
@@ -164,6 +165,7 @@ export class App {
       participants: summary.participants,
       bestAreaPercent: this.session?.player.stats.bestAreaPercent ?? summary.areaPercent,
       outcome: summary.outcome,
+      coins: summary.coins,
     };
 
     try {

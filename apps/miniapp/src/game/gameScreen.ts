@@ -1,7 +1,8 @@
 import { createMatch, type Actor, type GameEvent, type Match } from '@riqaa/game-core';
-import type { MatchStartResponse, RoundOutcome } from '@riqaa/shared';
-import { haptic } from '../telegram.js';
+import { ACTOR_COLORS, KILL_REWARD_COINS, type MatchStartResponse, type RoundOutcome } from '@riqaa/shared';
+import { enterLandscapeMode, exitLandscapeMode, haptic, onViewportChange } from '../telegram.js';
 import { h } from '../ui/dom.js';
+import { Leaderboard, type LeaderRow } from '../ui/leaderboard.js';
 import { InputController } from './input.js';
 import { Renderer } from './renderer.js';
 
@@ -12,6 +13,8 @@ export interface RoundSummary {
   participants: number;
   durationMs: number;
   outcome: RoundOutcome;
+  /** عملات هذه الجولة (من الإخراجات فقط). */
+  coins: number;
 }
 
 const HUD_INTERVAL_MS = 100;
@@ -31,7 +34,14 @@ export class GameScreen {
   private readonly areaChip: HTMLElement;
   private readonly rankChip: HTMLElement;
   private readonly timeChip: HTMLElement;
+  private readonly coinChip: HTMLElement;
+  private readonly coinValue: HTMLElement;
   private readonly hint: HTMLElement;
+  private readonly leaderboard = new Leaderboard();
+  private readonly leaderRows: LeaderRow[] = [];
+  private stopViewportWatch: (() => void) | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private coins = 0;
 
   private readonly eventBuffer: GameEvent[] = [];
   private frameHandle = 0;
@@ -49,6 +59,8 @@ export class GameScreen {
     private readonly descriptor: MatchStartResponse,
     private readonly onFinish: (summary: RoundSummary) => void,
     private readonly onExit: () => void,
+    /** صورة اللاعب من تيليجرام — تظهر في لوحة الصدارة. */
+    private readonly avatarUrl: string | null = null,
   ) {
     this.match = createMatch(descriptor);
 
@@ -56,6 +68,11 @@ export class GameScreen {
     this.areaChip = h('div', { class: 'hud__chip' });
     this.rankChip = h('div', { class: 'hud__chip' });
     this.timeChip = h('div', { class: 'hud__chip' });
+    this.coinValue = h('span', { class: 'hud__coin-value', text: '0' });
+    this.coinChip = h('div', { class: 'hud__chip hud__chip--coins' }, [
+      h('img', { class: 'hud__coin', src: '/game-coin.svg', alt: 'عملات' }),
+      this.coinValue,
+    ]);
     this.hint = h('div', { class: 'hint', text: 'اسحب إصبعك في أي مكان للتحكم' });
 
     const exitButton = h(
@@ -66,7 +83,14 @@ export class GameScreen {
 
     this.element = h('div', { class: 'screen game' }, [
       this.canvas,
-      h('div', { class: 'hud' }, [this.areaChip, this.rankChip, this.timeChip, exitButton]),
+      h('div', { class: 'hud' }, [
+        this.areaChip,
+        this.rankChip,
+        this.timeChip,
+        this.coinChip,
+        exitButton,
+      ]),
+      this.leaderboard.element,
       this.hint,
     ]);
 
@@ -82,10 +106,17 @@ export class GameScreen {
 
   mount(root: HTMLElement): void {
     root.append(this.element);
+    // اللعب بالعرض: ملء الشاشة وقفل الاتجاه إن كان العميل يدعمهما.
+    enterLandscapeMode();
+
     this.renderer.resize();
     this.input.attach();
-    window.addEventListener('resize', this.onResize);
-    window.addEventListener('orientationchange', this.onResize);
+    this.stopViewportWatch = onViewportChange(this.onResize);
+    // يلتقط أي تغيّر فعلي في أبعاد اللوحة مهما كان مصدره.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.renderer.resize());
+      this.resizeObserver.observe(this.canvas);
+    }
 
     this.updateHud();
     this.startedAt = performance.now();
@@ -96,8 +127,11 @@ export class GameScreen {
   destroy(): void {
     cancelAnimationFrame(this.frameHandle);
     this.input.detach();
-    window.removeEventListener('resize', this.onResize);
-    window.removeEventListener('orientationchange', this.onResize);
+    this.stopViewportWatch?.();
+    this.stopViewportWatch = null;
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    exitLandscapeMode();
     this.element.remove();
   }
 
@@ -133,7 +167,7 @@ export class GameScreen {
     if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
 
     this.consumeEvents();
-    this.renderer.draw(this.input.joystick);
+    this.renderer.draw(this.input.joystick, delta);
 
     if (time - this.hudClock >= HUD_INTERVAL_MS) {
       this.hudClock = time;
@@ -150,11 +184,25 @@ export class GameScreen {
     this.eventBuffer.length = 0;
     engine.drainEvents(this.eventBuffer);
 
+    const humanId = this.match.human.id;
     for (const event of this.eventBuffer) {
-      if (event.type === 'capture' && event.actorId === this.match.human.id && event.gained > 0) {
+      if (event.type === 'capture' && event.actorId === humanId && event.gained > 0) {
         haptic('light');
-      } else if (event.type === 'death' && event.actorId === this.match.human.id) {
+      } else if (event.type === 'death' && event.actorId === humanId) {
         haptic('error');
+      } else if (event.type === 'kill') {
+        const victim = engine.actorById(event.victimId);
+        const color = ACTOR_COLORS[(victim?.colorIndex ?? 0) % ACTOR_COLORS.length];
+        const byPlayer = event.killerId === humanId;
+        if (byPlayer) {
+          this.coins += KILL_REWARD_COINS;
+          this.coinValue.textContent = String(this.coins);
+          this.coinChip.classList.remove('hud__chip--pop');
+          void this.coinChip.offsetWidth; // إعادة تشغيل الحركة
+          this.coinChip.classList.add('hud__chip--pop');
+          haptic('medium');
+        }
+        this.renderer.effects.spawnKill(event.x, event.y, color, KILL_REWARD_COINS, byPlayer);
       }
     }
   }
@@ -170,6 +218,7 @@ export class GameScreen {
 
     setChip(this.areaChip, 'المساحة', `${this.snapshotArea.toFixed(2)}٪`);
     setChip(this.rankChip, 'المركز', `${this.snapshotRank} / ${engine.actors.length}`);
+    this.updateLeaderboard();
 
     const total = engine.config.roundSeconds;
     if (total > 0) {
@@ -180,6 +229,28 @@ export class GameScreen {
     } else {
       this.timeChip.style.display = 'none';
     }
+  }
+
+  /** يبني صفوف الصدارة من ترتيب الجولة الحالي. */
+  private updateLeaderboard(): void {
+    const engine = this.match.engine;
+    const humanId = this.match.human.id;
+    const ranked = engine.ranking();
+
+    this.leaderRows.length = 0;
+    for (let i = 0; i < ranked.length; i++) {
+      const actor = ranked[i];
+      const isHuman = actor.id === humanId;
+      this.leaderRows.push({
+        rank: i + 1,
+        name: actor.name,
+        area: engine.areaPercent(actor),
+        color: ACTOR_COLORS[actor.colorIndex % ACTOR_COLORS.length],
+        isHuman,
+        avatarUrl: isHuman ? this.avatarUrl : null,
+      });
+    }
+    this.leaderboard.update(this.leaderRows);
   }
 
   private hideHint(): void {
@@ -203,6 +274,7 @@ export class GameScreen {
       participants: engine.actors.length,
       durationMs: Math.round(performance.now() - this.startedAt),
       outcome: toOutcome(engine.endReason),
+      coins: this.coins,
     });
   }
 }

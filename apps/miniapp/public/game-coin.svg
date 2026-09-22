@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="عملة رقعة">
+  <title>عملة رقعة</title>
+  <defs>
+    <linearGradient id="coin-rim" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#FFE7A6"/>
+      <stop offset="1" stop-color="#D4881A"/>
+    </linearGradient>
+    <linearGradient id="coin-face" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#FFD166"/>
+      <stop offset="1" stop-color="#EFA531"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="32" cy="32" r="30" fill="url(#coin-rim)"/>
+  <circle cx="32" cy="32" r="24.5" fill="url(#coin-face)"/>
+
+  <!-- الرمز: رقعة أرض ضُمّت زاويتها — نفس فكرة الشعار بحجم عملة -->
+  <rect x="18" y="18" width="28" height="28" rx="7" fill="#1A2436"/>
+  <path d="M32 32 H46 V39 A7 7 0 0 1 39 46 H32 Z" fill="#FFD166"/>
+  <path d="M24 38 V24 H38" fill="none" stroke="#FFD166" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+</svg>

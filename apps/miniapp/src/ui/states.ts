@@ -8,9 +8,10 @@ export function loadingState(message: string): HTMLElement {
   ]);
 }
 
-/** انتظار تجهيز الجولة: رقعة تُملأ خلية خلية — نفس فكرة اللعبة. */
+/** انتظار تجهيز الجولة: الشعار ورقعة تُملأ خلية خلية — نفس فكرة اللعبة. */
 export function matchLoadingState(): HTMLElement {
   return h('div', { class: 'screen center-state' }, [
+    h('img', { class: 'state__logo', src: '/logo.svg', alt: 'رقعة', width: '64', height: '64' }),
     h(
       'div',
       { class: 'tiles', 'aria-hidden': 'true' },
