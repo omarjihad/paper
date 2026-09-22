@@ -292,24 +292,34 @@ function applyRotation(): void {
   const height = Math.round(window.visualViewport?.height ?? window.innerHeight);
   const shouldRotate = landscapeWanted && height > width && isMobileTelegramClient();
 
-  if (!shouldRotate) {
-    if (rotated) {
-      rotated = false;
-      delete root.dataset.rotated;
-      root.style.removeProperty('--rot-width');
-      root.style.removeProperty('--rot-height');
-      root.style.removeProperty('--rot-origin');
-    }
-    return;
+  if (shouldRotate) {
+    rotated = true;
+    root.dataset.rotated = '1';
+    // الإطار المُدار يشغل كامل الشاشة: عرضه = ارتفاع النافذة والعكس.
+    root.style.setProperty('--rot-width', `${height}px`);
+    root.style.setProperty('--rot-height', `${width}px`);
+    // مركز الدوران المحسوب كي تنطبق الحواف الأربع على الشاشة تمامًا.
+    root.style.setProperty('--rot-origin', `${width / 2}px`);
+  } else if (rotated) {
+    rotated = false;
+    delete root.dataset.rotated;
+    root.style.removeProperty('--rot-width');
+    root.style.removeProperty('--rot-height');
+    root.style.removeProperty('--rot-origin');
   }
 
-  rotated = true;
-  root.dataset.rotated = '1';
-  // الإطار المُدار يشغل كامل الشاشة: عرضه = ارتفاع النافذة والعكس.
-  root.style.setProperty('--rot-width', `${height}px`);
-  root.style.setProperty('--rot-height', `${width}px`);
-  // مركز الدوران المحسوب كي تنطبق الحواف الأربع على الشاشة تمامًا.
-  root.style.setProperty('--rot-origin', `${width / 2}px`);
+  applyLayoutMode();
+}
+
+/**
+ * وضع التخطيط الذي تبني عليه الأنماط.
+ * لا يصح الاعتماد على @media (orientation) لأنها تقيس اتجاه **الجهاز**،
+ * فيبقى التصميم طوليًا رغم أن المحتوى مُدار — ولا يتبدّل إلا بقلب الهاتف.
+ * هنا نقيس اتجاه **المحتوى** نفسه.
+ */
+function applyLayoutMode(): void {
+  const landscapeLayout = rotated || isLandscape();
+  document.documentElement.dataset.layout = landscapeLayout ? 'landscape' : 'portrait';
 }
 
 /**
@@ -356,6 +366,7 @@ export function onViewportChange(handler: () => void): () => void {
 export function initTelegram(): void {
   syncViewportHeight();
   syncSafeAreaInsets();
+  applyLayoutMode();
   // إعادة القياس بعد تطبيق meta viewport وعند أي تغيّر لاحق.
   window.addEventListener('load', syncViewportHeight);
   window.addEventListener('resize', syncViewportHeight);

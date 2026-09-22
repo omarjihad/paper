@@ -945,22 +945,21 @@ body {
 }
 
 /* ===================== وضع العرض (Landscape) ===================== */
-@media (orientation: landscape) {
-  /* الشاشة عريضة وقصيرة: عمودان بدل عمود واحد طويل،
+:root[data-layout='landscape'] /* الشاشة عريضة وقصيرة: عمودان بدل عمود واحد طويل،
      كي يظهر كل شيء بلا تمرير وبلا تمدّد على كامل العرض. */
   .page,
-  .btn-dock {
+:root[data-layout='landscape'] .btn-dock {
     width: 100%;
     max-width: 780px;
     margin-inline: auto;
   }
 
-  .page {
+:root[data-layout='landscape'] .page {
     padding: calc(var(--safe-top) + 10px) 16px 8px;
     gap: 10px;
   }
 
-  .page--menu {
+:root[data-layout='landscape'] .page--menu {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-auto-rows: min-content;
@@ -968,65 +967,65 @@ body {
     column-gap: 12px;
   }
 
-  /* الصف الأول: العلامة يمينًا ووسم الاتصال في الفراغ المقابل له. */
+:root[data-layout='landscape'] /* الصف الأول: العلامة يمينًا ووسم الاتصال في الفراغ المقابل له. */
   .page--menu > .brand {
     grid-column: 1;
     grid-row: 1;
   }
 
-  .page--menu > .card--tap {
+:root[data-layout='landscape'] .page--menu > .card--tap {
     grid-column: 1;
     grid-row: 2;
   }
 
-  .page--menu > .badge-row {
+:root[data-layout='landscape'] .page--menu > .badge-row {
     grid-column: 2;
     grid-row: 1;
     align-self: center;
   }
 
-  .page--menu > .card.how {
+:root[data-layout='landscape'] .page--menu > .card.how {
     grid-column: 2;
     grid-row: 2;
     align-self: start;
   }
 
-  .page--menu .how {
+:root[data-layout='landscape'] .page--menu .how {
     font-size: 12px;
     gap: 7px;
   }
 
-  .page--menu .identity__name {
+:root[data-layout='landscape'] .page--menu .identity__name {
     font-size: 16.5px;
   }
 
-  .page--menu .avatar {
+:root[data-layout='landscape'] .page--menu .avatar {
     width: 44px;
     height: 44px;
     border-radius: 14px;
   }
 
-  .card {
+:root[data-layout='landscape'] .card {
     padding: 11px;
   }
 
-  .stat {
+:root[data-layout='landscape'] .stat {
     padding: 7px 5px;
   }
 
-  .stat__value {
+:root[data-layout='landscape'] .stat__value {
     font-size: 17px;
   }
 
-  .stat__label {
+:root[data-layout='landscape'] .stat__label {
     font-size: 11px;
   }
 
-  .note {
+:root[data-layout='landscape'] .note {
     font-size: 11px;
   }
 
-  .page--profile {
+:root[data-layout='landscape'] .page--profile {
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
     grid-auto-rows: min-content;
@@ -1034,105 +1033,105 @@ body {
     column-gap: 12px;
   }
 
-  .page--profile > * {
+:root[data-layout='landscape'] .page--profile > * {
     grid-column: 2;
   }
 
-  .page--profile > :first-child {
+:root[data-layout='landscape'] .page--profile > :first-child {
     grid-column: 1;
     grid-row: 1 / span 20;
     align-self: start;
   }
 
-  .page--profile .stats {
+:root[data-layout='landscape'] .page--profile .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .page--profile .row {
+:root[data-layout='landscape'] .page--profile .row {
     padding: 8px 2px;
     font-size: 13px;
   }
 
-  .section-title {
+:root[data-layout='landscape'] .section-title {
     margin: 0 2px -6px;
   }
 
-  .brand__logo {
+:root[data-layout='landscape'] .brand__logo {
     width: 36px;
     height: 36px;
   }
 
-  .brand__name {
+:root[data-layout='landscape'] .brand__name {
     font-size: 20px;
   }
 
-  .brand__tag {
+:root[data-layout='landscape'] .brand__tag {
     font-size: 11.5px;
   }
 
-  .avatar {
+:root[data-layout='landscape'] .avatar {
     width: 48px;
     height: 48px;
     border-radius: 15px;
   }
 
-  .avatar--lg {
+:root[data-layout='landscape'] .avatar--lg {
     width: 68px;
     height: 68px;
     border-radius: 22px;
   }
 
-  .card {
+:root[data-layout='landscape'] .card {
     padding: 12px;
   }
 
-  .stats {
+:root[data-layout='landscape'] .stats {
     margin-top: 10px;
   }
 
-  .stat {
+:root[data-layout='landscape'] .stat {
     padding: 8px 6px;
   }
 
-  .btn {
+:root[data-layout='landscape'] .btn {
     padding: 12px 18px;
     font-size: 16px;
   }
 
-  .btn-dock {
+:root[data-layout='landscape'] .btn-dock {
     padding: 12px 16px 8px;
   }
 
-  .nav {
+:root[data-layout='landscape'] .nav {
     padding: 4px 10px calc(var(--safe-bottom) + 4px);
   }
 
-  .nav__item {
+:root[data-layout='landscape'] .nav__item {
     padding: 5px 4px;
   }
 
-  .profile-head {
+:root[data-layout='landscape'] .profile-head {
     gap: 5px;
     padding: 2px 0 0;
   }
 
-  .hud {
+:root[data-layout='landscape'] .hud {
     top: calc(var(--safe-top) + 7px);
     gap: 6px;
   }
 
-  .hud__chip {
+:root[data-layout='landscape'] .hud__chip {
     padding: 4px 10px;
     font-size: 11.5px;
   }
 
-  .hud__exit {
+:root[data-layout='landscape'] .hud__exit {
     width: 30px;
     height: 30px;
     font-size: 15px;
   }
 
-  .lb {
+:root[data-layout='landscape'] .lb {
     top: calc(var(--safe-top) + 40px);
     left: calc(var(--safe-left) + 10px);
     width: 132px;
@@ -1140,102 +1139,102 @@ body {
     border-radius: 11px;
   }
 
-  .lb__row {
+:root[data-layout='landscape'] .lb__row {
     font-size: 10px;
     padding: 1px 4px;
     gap: 4px;
   }
 
-  .lb__rank {
+:root[data-layout='landscape'] .lb__rank {
     width: 16px;
   }
 
-  .lb__badge {
+:root[data-layout='landscape'] .lb__badge {
     width: 7px;
     height: 7px;
   }
 
-  .lb__avatar {
+:root[data-layout='landscape'] .lb__avatar {
     width: 13px;
     height: 13px;
     border-radius: 4px;
   }
 
-  .lb__area {
+:root[data-layout='landscape'] .lb__area {
     font-size: 9.5px;
   }
 
-  .lb__divider {
+:root[data-layout='landscape'] .lb__divider {
     margin: 1px 5px;
   }
 
-  .hint {
+:root[data-layout='landscape'] .hint {
     font-size: 11.5px;
     opacity: 0.75;
   }
 
-  /* النتيجة: بطاقة عريضة بصفوف وأزرار متجاورة كي تتسع للشاشة القصيرة. */
+:root[data-layout='landscape'] /* النتيجة: بطاقة عريضة بصفوف وأزرار متجاورة كي تتسع للشاشة القصيرة. */
   .result {
     padding: 10px 16px;
   }
 
-  .result__card {
+:root[data-layout='landscape'] .result__card {
     max-width: 620px;
     padding: 14px 16px;
   }
 
-  .result__title {
+:root[data-layout='landscape'] .result__title {
     font-size: 19px;
   }
 
-  .result__reason {
+:root[data-layout='landscape'] .result__reason {
     margin-bottom: 10px;
     font-size: 12px;
   }
 
-  .result__rows {
+:root[data-layout='landscape'] .result__rows {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
     margin-bottom: 11px;
   }
 
-  .result__row {
+:root[data-layout='landscape'] .result__row {
     padding: 8px 12px;
     font-size: 13px;
   }
 
-  .result__row b {
+:root[data-layout='landscape'] .result__row b {
     font-size: 15px;
   }
 
-  .result__actions {
+:root[data-layout='landscape'] .result__actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 9px;
   }
 
-  .result__actions .btn {
+:root[data-layout='landscape'] .result__actions .btn {
     padding: 11px 16px;
     font-size: 15px;
   }
 
-  /* شاشات الانتظار تنكمش أيضًا. */
+:root[data-layout='landscape'] /* شاشات الانتظار تنكمش أيضًا. */
   .center-state {
     gap: 10px;
     padding: 16px;
   }
 
-  .state__logo {
+:root[data-layout='landscape'] .state__logo {
     width: 44px;
     height: 44px;
   }
 
-  .tiles {
+:root[data-layout='landscape'] .tiles {
     grid-template-columns: repeat(3, 18px);
     grid-auto-rows: 18px;
     gap: 4px;
   }
 
-  /* التلميح فوق العصا الساكنة التي تنتقل يمينًا في وضع العرض. */
+:root[data-layout='landscape'] /* التلميح فوق العصا الساكنة التي تنتقل يمينًا في وضع العرض. */
   .hint {
     bottom: calc(var(--safe-bottom) + 12px);
     right: auto;
@@ -1244,27 +1243,26 @@ body {
     width: max-content;
     max-width: 70vw;
   }
-}
 
 /* شاشة طولية ضيقة: اللعبة مصمَّمة للعرض، وهنا نضمن فقط ألا يتجاوز شيء. */
-@media (orientation: portrait) and (max-width: 430px) {
-  .hud {
-    gap: 5px;
-  }
+@media (max-width: 430px) {
+  :root[data-layout='portrait'] .hud {
+      gap: 5px;
+    }
 
-  .hud__chip {
-    padding: 5px 9px;
-    font-size: 11px;
-  }
+  :root[data-layout='portrait'] .hud__chip {
+      padding: 5px 9px;
+      font-size: 11px;
+    }
 
-  /* القيم وحدها تكفي على العرض الضيق؛ التسميات تعود في وضع العرض. */
-  .hud__chip span:not(.hud__coin-value) {
-    display: none;
-  }
+  :root[data-layout='portrait'] /* القيم وحدها تكفي على العرض الضيق؛ التسميات تعود في وضع العرض. */
+    .hud__chip span:not(.hud__coin-value) {
+      display: none;
+    }
 
-  .hud__exit {
-    width: 30px;
-    height: 30px;
-    font-size: 15px;
-  }
+  :root[data-layout='portrait'] .hud__exit {
+      width: 30px;
+      height: 30px;
+      font-size: 15px;
+    }
 }
