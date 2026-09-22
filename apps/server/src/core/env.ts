@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+
 /** قيمة تطوير معروفة — لا يُسمح بها في الإنتاج إطلاقًا. */
 export const DEV_SESSION_SECRET = 'riqaa-dev-secret-change-me';
 
@@ -14,6 +16,10 @@ export interface Env {
   corsOrigin: string;
   /** أقصى عمر مقبول لـ initData بالثواني. */
   initDataMaxAge: number;
+  /** العنوان العام للخدمة (بلا شرطة في آخره)، أو فارغ إن تعذّر تحديده. */
+  publicUrl: string;
+  /** رمز حماية webhook تيليجرام. */
+  telegramWebhookSecret: string;
 }
 
 function bool(value: string | undefined, fallback: boolean): boolean {
@@ -35,7 +41,39 @@ export function loadEnv(): Env {
     mongoDb: process.env.MONGODB_DB ?? 'riqaa',
     corsOrigin: process.env.CORS_ORIGIN ?? '*',
     initDataMaxAge: Number(process.env.INIT_DATA_MAX_AGE ?? 86400),
+    publicUrl: resolvePublicUrl(),
+    telegramWebhookSecret: resolveWebhookSecret(process.env.SESSION_SECRET ?? DEV_SESSION_SECRET),
   };
+}
+
+/**
+ * العنوان العام للخدمة.
+ * PUBLIC_URL يتقدّم دائمًا؛ وإلا نأخذ دومين Railway من بيئته — بلا افتراض أي دومين ثابت.
+ */
+function resolvePublicUrl(): string {
+  const explicit = process.env.PUBLIC_URL?.trim();
+  if (explicit) return normalizeUrl(explicit);
+
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  if (railway) return normalizeUrl(railway);
+
+  return '';
+}
+
+function normalizeUrl(value: string): string {
+  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  return withScheme.replace(/\/+$/, '');
+}
+
+/**
+ * رمز حماية الـwebhook: يؤخذ من البيئة إن وُجد، وإلا يُشتق من SESSION_SECRET.
+ * الاشتقاق ثابت عبر عمليات إعادة التشغيل، فلا يبطل التسجيل السابق لدى تيليجرام.
+ */
+function resolveWebhookSecret(sessionSecret: string): string {
+  const explicit = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+  // تيليجرام يقبل A-Z a-z 0-9 _ - فقط، بطول 1..256.
+  if (explicit) return explicit.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 256);
+  return createHmac('sha256', sessionSecret).update('riqaa-telegram-webhook').digest('hex').slice(0, 48);
 }
 
 /**

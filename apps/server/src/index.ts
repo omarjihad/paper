@@ -1,6 +1,11 @@
 import { buildApp } from './app.js';
-import { assertProductionConfig, loadEnv } from './core/env.js';
+import { assertProductionConfig, loadEnv, type Env } from './core/env.js';
 import { createPlayerRepository } from './infra/repository.factory.js';
+import { TelegramBot } from './modules/bot/bot.service.js';
+import { TelegramApi } from './modules/bot/telegram.api.js';
+
+/** مسار الـwebhook — ثابت ومعروف للطرفين. */
+const WEBHOOK_PATH = '/api/telegram/webhook';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -14,7 +19,18 @@ async function main(): Promise<void> {
   }
 
   const players = await createPlayerRepository(env, (message) => console.log(`[riqaa] ${message}`));
-  const app = await buildApp({ env, players });
+
+  // البوت اختياري: بدون توكن أو بدون عنوان عام يبقى مسار الـwebhook معطّلًا.
+  const bot =
+    env.telegramBotToken && env.publicUrl
+      ? new TelegramBot(new TelegramApi(env.telegramBotToken), env.publicUrl, {
+          info: (message) => console.log(`[riqaa] ${message}`),
+          warn: (message) => console.warn(`[riqaa] ${message}`),
+          error: (message) => console.error(`[riqaa] ${message}`),
+        })
+      : null;
+
+  const app = await buildApp({ env, players, bot });
 
   if (!env.telegramBotToken) {
     app.log.warn(
@@ -39,6 +55,40 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
   await app.listen({ port: env.port, host: env.host });
+
+  // التسجيل بعد بدء الاستماع كي يكون المسار جاهزًا قبل أول تحديث من تيليجرام.
+  await setupWebhook(env, bot, app.log);
+}
+
+/** يسجّل الـwebhook في الإنتاج فقط، وفشله لا يُسقط الخادم. */
+async function setupWebhook(
+  env: Env,
+  bot: TelegramBot | null,
+  log: { info(message: string): void; warn(message: string): void; error(message: string): void },
+): Promise<void> {
+  if (!env.isProduction) {
+    log.info('تسجيل webhook تيليجرام يعمل في الإنتاج فقط — تم تخطّيه.');
+    return;
+  }
+  if (!env.telegramBotToken) {
+    log.warn('لا يمكن تسجيل webhook تيليجرام: TELEGRAM_BOT_TOKEN غير مضبوط.');
+    return;
+  }
+  if (!env.publicUrl) {
+    log.warn(
+      'لا يمكن تسجيل webhook تيليجرام: تعذّر تحديد العنوان العام. اضبط PUBLIC_URL ' +
+        '(أو فعّل الدومين العام في Railway ليتوفر RAILWAY_PUBLIC_DOMAIN).',
+    );
+    return;
+  }
+  if (!bot) return;
+
+  const webhookUrl = `${env.publicUrl}${WEBHOOK_PATH}`;
+  try {
+    await bot.registerWebhook(webhookUrl, env.telegramWebhookSecret);
+  } catch (error) {
+    log.error(`فشل تسجيل webhook تيليجرام على ${webhookUrl}: ${(error as Error).message}`);
+  }
 }
 
 main().catch((error) => {

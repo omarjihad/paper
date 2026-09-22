@@ -7,6 +7,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './core/env.js';
 import { AppError } from './core/errors.js';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
+import { registerBotRoutes } from './modules/bot/bot.routes.js';
+import type { TelegramBot } from './modules/bot/bot.service.js';
 import { registerMatchRoutes } from './modules/match/match.routes.js';
 import { MatchService } from './modules/match/match.service.js';
 import type { PlayerRepository } from './modules/players/player.repository.js';
@@ -14,6 +16,8 @@ import type { PlayerRepository } from './modules/players/player.repository.js';
 export interface AppDeps {
   env: Env;
   players: PlayerRepository;
+  /** بوت تيليجرام — null يعني أن مسار الـwebhook معطّل. */
+  bot?: TelegramBot | null;
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -44,11 +48,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     ok: true,
     storage: deps.players.kind,
     telegram: deps.env.telegramBotToken ? 'configured' : 'missing',
+    bot: deps.bot ? 'enabled' : 'disabled',
   }));
 
   const matches = new MatchService();
   await registerAuthRoutes(app, { env: deps.env, players: deps.players });
   await registerMatchRoutes(app, { env: deps.env, players: deps.players, matches });
+  await registerBotRoutes(app, {
+    bot: deps.bot ?? null,
+    secretToken: deps.env.telegramWebhookSecret,
+  });
 
   if (existsSync(MINIAPP_DIST)) {
     await app.register(fastifyStatic, { root: MINIAPP_DIST, index: ['index.html'] });
