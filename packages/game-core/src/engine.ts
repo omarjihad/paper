@@ -5,6 +5,9 @@ import { Rng } from './rng.js';
 import {
   DX,
   DY,
+  HALF_PI,
+  dirToHeading,
+  headingToDir,
   type Actor,
   type ActorController,
   type ActorKind,
@@ -44,6 +47,14 @@ export class GameEngine implements WorldView {
   private readonly capture: CaptureSolver;
   private readonly pendingWipe: number[] = [];
   private humanId = 0;
+
+  /**
+   * الخلايا الأخيرة من المسار لا تقتل صاحبها.
+   * بلا هذه النافذة يصبح أي التفاف حاد في حركة 360 درجة موتًا فوريًا.
+   */
+  private static readonly SELF_GRACE_CELLS = 3;
+  /** أدنى نسبة سرعة كي لا يتجمّد اللاعب عند أقل لمسة. */
+  private static readonly MIN_THROTTLE = 0.35;
 
   constructor(options: EngineOptions) {
     this.config = options.config;
@@ -104,13 +115,13 @@ export class GameEngine implements WorldView {
     return this.ranking().indexOf(actor) + 1;
   }
 
-  /** إحداثيات الرسم المنعّمة بين خليتين. */
+  /** موضع الرسم = الموضع المستمر نفسه (مركز اللاعب بوحدة الخلية). */
   renderX(actor: Actor): number {
-    return actor.blocked ? actor.cx : actor.cx + DX[actor.dir] * actor.progress;
+    return actor.x;
   }
 
   renderY(actor: Actor): number {
-    return actor.blocked ? actor.cy : actor.cy + DY[actor.dir] * actor.progress;
+    return actor.y;
   }
 
   // ------------------------------------------------------------- الإعداد
@@ -123,11 +134,12 @@ export class GameEngine implements WorldView {
       colorIndex: spec.colorIndex,
       difficulty: spec.difficulty ?? null,
       alive: false,
+      x: 0,
+      y: 0,
+      heading: 0,
       cx: 0,
       cy: 0,
       dir: 0,
-      nextDir: 0,
-      progress: 0,
       trail: [],
       outside: false,
       exitCell: 0,
@@ -159,13 +171,12 @@ export class GameEngine implements WorldView {
     if (this.status === 'ended') return;
     this.elapsed += dt;
 
-    const distance = dt * this.config.speedCellsPerSecond;
     for (const actor of this.actors) {
       if (!actor.alive) {
         if (actor.respawnAt >= 0 && this.elapsed >= actor.respawnAt) this.respawn(actor);
         continue;
       }
-      this.advance(actor, distance);
+      this.advance(actor, dt);
     }
 
     this.resolveCollisions();
@@ -189,57 +200,87 @@ export class GameEngine implements WorldView {
     this.events.length = 0;
   }
 
-  private advance(actor: Actor, distance: number): void {
-    actor.progress += distance;
-    let guard = 0;
-    while (actor.progress >= 1 && actor.alive && guard++ < 8) {
-      actor.progress -= 1;
-      this.stepCell(actor);
+  /**
+   * حركة حرة: زاوية أي درجة وسرعة تناظرية.
+   * الموضع عشري مستمر، والشبكة تُستخدم لاحتساب الأرض فقط.
+   */
+  private advance(actor: Actor, dt: number): void {
+    const controller = this.controllers.get(actor.id);
+
+    let throttle = 1;
+    const intent = controller?.intent?.(this, actor) ?? null;
+    if (intent) {
+      actor.heading = intent.heading;
+      actor.dir = headingToDir(intent.heading);
+      throttle = clamp(intent.throttle, 0, 1);
+      if (throttle > 0) throttle = Math.max(throttle, GameEngine.MIN_THROTTLE);
     }
-    if (!actor.alive) actor.progress = 0;
+
+    const distance = this.config.speedCellsPerSecond * throttle * dt;
+    if (distance <= 0) return;
+
+    const grid = this.grid;
+    const targetX = clamp(actor.x + Math.cos(actor.heading) * distance, EDGE, grid.width - EDGE);
+    const targetY = clamp(actor.y + Math.sin(actor.heading) * distance, EDGE, grid.height - EDGE);
+
+    this.traverse(actor, actor.x, actor.y, targetX, targetY);
+    if (!actor.alive) return;
+
+    actor.x = targetX;
+    actor.y = targetY;
   }
 
-  private stepCell(actor: Actor): void {
-    const grid = this.grid;
-    const controller = this.controllers.get(actor.id);
-    if (controller) {
-      const wanted = controller.decide(this, actor);
-      if (wanted !== null) actor.nextDir = wanted;
-    }
+  /**
+   * يمشي على كل خلية يعبرها المقطع، خطوةً على محور واحد في كل مرة.
+   * هذا يضمن أن المسار متصل من أربع جهات حتى في الحركة القطرية،
+   * وبدونه يتسرّب الملء من فتحات الأقطار فلا تُحتسب المساحة.
+   */
+  private traverse(actor: Actor, x0: number, y0: number, x1: number, y1: number): void {
+    let cx = Math.floor(x0);
+    let cy = Math.floor(y0);
+    const endX = Math.floor(x1);
+    const endY = Math.floor(y1);
+    if (cx === endX && cy === endY) return;
 
-    // الاستدارة 180 درجة مسموحة فقط إن لم تكن انتحارًا فوريًا على المسار الذاتي.
-    // (المنع المطلق كان يُعلِّق اللاعب لو ظهر متجهًا عكس أول إدخال منه.)
-    if (actor.nextDir !== ((actor.dir + 2) & 3)) {
-      actor.dir = actor.nextDir;
-    } else {
-      const bx = actor.cx + DX[actor.nextDir];
-      const by = actor.cy + DY[actor.nextDir];
-      if (grid.inBounds(bx, by) && grid.trail[grid.index(bx, by)] !== actor.id) {
-        actor.dir = actor.nextDir;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    let tMaxX = stepX === 0 ? Infinity : (stepX > 0 ? cx + 1 - x0 : x0 - cx) / absDx;
+    let tMaxY = stepY === 0 ? Infinity : (stepY > 0 ? cy + 1 - y0 : y0 - cy) / absDy;
+    const tDeltaX = stepX === 0 ? Infinity : 1 / absDx;
+    const tDeltaY = stepY === 0 ? Infinity : 1 / absDy;
+
+    let guard = 0;
+    while ((cx !== endX || cy !== endY) && guard++ < 64) {
+      if (tMaxX < tMaxY) {
+        cx += stepX;
+        tMaxX += tDeltaX;
+      } else {
+        cy += stepY;
+        tMaxY += tDeltaY;
       }
+      if (!this.enterCell(actor, cx, cy)) return;
     }
+  }
 
-    const fromIndex = grid.index(actor.cx, actor.cy);
-    const nx = actor.cx + DX[actor.dir];
-    const ny = actor.cy + DY[actor.dir];
+  /** يعالج دخول خلية جديدة. يعيد false إذا خرج المشارك من الجولة. */
+  private enterCell(actor: Actor, nx: number, ny: number): boolean {
+    const grid = this.grid;
+    if (!grid.inBounds(nx, ny)) return true;
 
-    if (!grid.inBounds(nx, ny)) {
-      // الحدود تمنع الحركة ولا تقتل — أرحم بكثير على شاشة الهاتف.
-      // نُبقي التقدّم قرب الحافة كي تُعاد المحاولة في الإطار التالي مباشرة.
-      actor.blocked = true;
-      actor.progress = 0.99;
-      return;
-    }
-    actor.blocked = false;
-
-    const targetIndex = grid.index(nx, ny);
-    const trailOwner = grid.trail[targetIndex];
+    const index = grid.index(nx, ny);
+    const trailOwner = grid.trail[index];
 
     if (trailOwner === actor.id) {
-      this.killActor(actor, 'self');
-      return;
-    }
-    if (trailOwner !== 0) {
+      if (!this.isRecentTrail(actor, index)) {
+        this.killActor(actor, 'self');
+        return false;
+      }
+    } else if (trailOwner !== 0) {
       const victim = this.byId.get(trailOwner);
       if (victim && victim.alive) {
         actor.kills++;
@@ -248,20 +289,43 @@ export class GameEngine implements WorldView {
       }
     }
 
+    const fromIndex = grid.index(actor.cx, actor.cy);
     actor.cx = nx;
     actor.cy = ny;
 
-    if (grid.owner[targetIndex] === actor.id) {
+    if (grid.owner[index] === actor.id) {
       if (actor.outside) this.closeLoop(actor);
-      return;
+    } else {
+      if (!actor.outside) {
+        actor.outside = true;
+        actor.exitCell = fromIndex;
+      }
+      if (grid.trail[index] !== actor.id) {
+        grid.trail[index] = actor.id;
+        actor.trail.push(index);
+      }
     }
 
-    if (!actor.outside) {
-      actor.outside = true;
-      actor.exitCell = fromIndex;
+    // البوتات تقرر عند كل خلية جديدة، تمامًا كما كانت.
+    const wanted = this.controllers.get(actor.id)?.decide?.(this, actor) ?? null;
+    if (wanted !== null && wanted !== actor.dir) {
+      actor.dir = wanted;
+      actor.heading = dirToHeading(wanted);
+      // إبقاء المتحرك على محور الخلية كي تبقى مساراته مستقيمة.
+      if (wanted === 0 || wanted === 2) actor.y = actor.cy + 0.5;
+      else actor.x = actor.cx + 0.5;
     }
-    grid.trail[targetIndex] = actor.id;
-    actor.trail.push(targetIndex);
+    return true;
+  }
+
+  /** هل الخلية من آخر خطوات المسار؟ (نافذة سماح للالتفاف الحاد) */
+  private isRecentTrail(actor: Actor, index: number): boolean {
+    const trail = actor.trail;
+    const from = Math.max(0, trail.length - GameEngine.SELF_GRACE_CELLS);
+    for (let i = trail.length - 1; i >= from; i--) {
+      if (trail[i] === index) return true;
+    }
+    return false;
   }
 
   /** إغلاق المسار: المسار نفسه يصبح ملكًا، ثم يُملأ كل فراغ محاصَر. */
@@ -378,9 +442,10 @@ export class GameEngine implements WorldView {
 
     actor.cx = spot.x;
     actor.cy = spot.y;
+    actor.x = spot.x + 0.5;
+    actor.y = spot.y + 0.5;
     actor.dir = this.rng.int(0, 3) as Dir;
-    actor.nextDir = actor.dir;
-    actor.progress = 0;
+    actor.heading = dirToHeading(actor.dir);
     actor.trail.length = 0;
     actor.outside = false;
     actor.exitCell = this.grid.index(spot.x, spot.y);
@@ -435,4 +500,11 @@ export class GameEngine implements WorldView {
     }
     return true;
   }
+}
+
+/** هامش صغير يمنع الخروج من حدود الشبكة عند القصّ. */
+const EDGE = 0.001;
+
+function clamp(value: number, min: number, max: number): number {
+  return value < min ? min : value > max ? max : value;
 }

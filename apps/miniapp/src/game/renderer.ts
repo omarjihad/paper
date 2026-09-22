@@ -180,12 +180,12 @@ export class Renderer {
     const ctx = this.ctx;
     const engine = this.engine;
     const head = Math.max(cell * 0.86, 6);
-    const inset = (cell - head) / 2;
 
     for (const actor of engine.actors) {
       if (!actor.alive) continue;
-      const px = offsetX + engine.renderX(actor) * cell + inset;
-      const py = offsetY + engine.renderY(actor) * cell + inset;
+      // الموضع الآن مركز اللاعب لا ركن خليته.
+      const px = offsetX + engine.renderX(actor) * cell - head / 2;
+      const py = offsetY + engine.renderY(actor) * cell - head / 2;
 
       if (actor.kind === 'human') {
         ctx.shadowColor = this.headColor[actor.id] ?? '#fff';

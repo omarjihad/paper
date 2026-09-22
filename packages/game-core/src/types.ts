@@ -11,6 +11,20 @@ export type Dir = 0 | 1 | 2 | 3;
 export const DX: readonly number[] = [1, 0, -1, 0];
 export const DY: readonly number[] = [0, 1, 0, -1];
 
+export const TAU = Math.PI * 2;
+export const HALF_PI = Math.PI / 2;
+
+/** زاوية الاتجاه الأصلي بالراديان. */
+export function dirToHeading(dir: Dir): number {
+  return dir * HALF_PI;
+}
+
+/** أقرب اتجاه أصلي لزاوية — يستخدمه منطق البوتات كما هو. */
+export function headingToDir(heading: number): Dir {
+  const angle = ((heading % TAU) + TAU) % TAU;
+  return (Math.round(angle / HALF_PI) % 4) as Dir;
+}
+
 export type ActorKind = 'human' | 'bot';
 
 /** حالة مشارك واحد داخل المحاكاة. تُعاد استخدامها ولا يُعاد إنشاؤها أثناء الجولة. */
@@ -22,13 +36,19 @@ export interface Actor {
   colorIndex: number;
   difficulty: BotDifficulty | null;
   alive: boolean;
-  /** الخلية الحالية. */
+  /**
+   * الموضع المستمر بوحدة الخلية (مركز اللاعب).
+   * الأرض تُحتسب على شبكة، أما الحركة فحرة بإحداثيات عشرية.
+   */
+  x: number;
+  y: number;
+  /** زاوية الحركة بالراديان — أي زاوية من 360 درجة. */
+  heading: number;
+  /** الخلية التي يقف فيها الآن، مشتقة من الموضع. */
   cx: number;
   cy: number;
+  /** أقرب اتجاه أصلي للزاوية — لمنطق البوتات فقط. */
   dir: Dir;
-  nextDir: Dir;
-  /** 0..1 — الموضع بين الخلية الحالية والتالية (للرسم السلس فقط). */
-  progress: number;
   /** فهارس خلايا المسار بالترتيب. */
   trail: number[];
   /** هل اللاعب خارج منطقته الآن (أي أن له مسارًا مكشوفًا). */
@@ -72,14 +92,27 @@ export interface WorldView {
   actorById(id: number): Actor | undefined;
 }
 
+/** نيّة حركة تناظرية: زاوية حرة + نسبة سرعة. */
+export interface MoveIntent {
+  /** بالراديان، أي زاوية. */
+  heading: number;
+  /** 0..1 — نسبة من السرعة القصوى. */
+  throttle: number;
+}
+
 /**
  * مصدر الإدخال لأي مشارك: لاعب بشري، بوت، أو لاحقًا حزمة قادمة من الشبكة.
  * المحرك لا يعرف ولا يهتم من أين جاء الاتجاه.
  */
 export interface ActorController {
   readonly actorId: number;
-  /** يُستدعى عند كل عبور لحدود خلية. null = أبقِ الاتجاه الحالي. */
-  decide(world: WorldView, actor: Actor): Dir | null;
+  /**
+   * إدخال تناظري يُقرأ كل خطوة محاكاة. له الأولوية على decide.
+   * null = لا تغيير على الحركة الحالية.
+   */
+  intent?(world: WorldView, actor: Actor): MoveIntent | null;
+  /** إدخال شبكي يُستدعى عند دخول كل خلية جديدة. null = أبقِ الاتجاه الحالي. */
+  decide?(world: WorldView, actor: Actor): Dir | null;
   /** يُستدعى عند موت المشارك أو عودته لتصفير أي تخطيط داخلي. */
   reset?(): void;
 }

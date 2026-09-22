@@ -71,9 +71,12 @@ export class GameScreen {
     ]);
 
     this.renderer = new Renderer(this.canvas, this.match.engine);
-    this.input = new InputController(this.canvas, (direction) => {
-      this.match.humanController.setDirection(direction);
-      this.hideHint();
+    this.input = new InputController(this.canvas, {
+      onIntent: (heading, throttle) => {
+        this.match.humanController.setIntent(heading, throttle);
+        this.hideHint();
+      },
+      onRelease: () => this.match.humanController.release(),
     });
   }
 

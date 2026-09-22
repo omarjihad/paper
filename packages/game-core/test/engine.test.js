@@ -115,6 +115,8 @@ test('قطع مسار خصم يقتله ويعيده لاحقًا', () => {
 
   prey.cx = hunter.cx + 4;
   prey.cy = hunter.cy;
+  prey.x = prey.cx + 0.5;
+  prey.y = prey.cy + 0.5;
   prey.outside = true;
   const trailIndex = engine.grid.index(hunter.cx + 2, hunter.cy);
   engine.grid.trail[trailIndex] = prey.id;
