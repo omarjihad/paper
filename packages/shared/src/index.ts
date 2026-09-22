@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V10';
+export const APP_VERSION = 'V11';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -74,10 +74,38 @@ export interface MatchConfig {
 
 export type BotDifficulty = 'easy' | 'medium' | 'hard';
 
+/**
+ * أنماط سلوك البوتات. الصعوبة تضبط «مستوى الإتقان»، والنمط يضبط «الأسلوب»،
+ * فيتنوّع الخصوم داخل الجولة الواحدة بدل أن يكونوا نسخة واحدة مكرّرة.
+ */
+export type BotBehavior = 'explorer' | 'defensive' | 'aggressive' | 'opportunist' | 'balanced';
+
+export const BOT_BEHAVIORS: readonly BotBehavior[] = [
+  'explorer',
+  'defensive',
+  'aggressive',
+  'opportunist',
+  'balanced',
+];
+
 /** وصف مشارك في الجولة. النوع صريح: إما بشر أو بوت — لا تمويه. */
 export type MatchParticipant =
-  | { kind: 'human'; actorId: number; name: string; colorIndex: number }
-  | { kind: 'bot'; actorId: number; name: string; colorIndex: number; difficulty: BotDifficulty };
+  | {
+      kind: 'human';
+      actorId: number;
+      name: string;
+      colorIndex: number;
+      /** صورة تيليجرام كما اشتقّها الخادم من الجلسة — لا تصل من العميل أبدًا. */
+      avatarUrl?: string | null;
+    }
+  | {
+      kind: 'bot';
+      actorId: number;
+      name: string;
+      colorIndex: number;
+      difficulty: BotDifficulty;
+      behavior: BotBehavior;
+    };
 
 export interface MatchResultRequest {
   matchId: string;
@@ -132,3 +160,171 @@ export const DEFAULT_MATCH_CONFIG: MatchConfig = {
   roundSeconds: 180,
   botRespawnSeconds: 4,
 };
+
+// ===========================================================================
+//                       الطور الشبكي: غرف، مطابقة، مناطق
+// ===========================================================================
+
+/**
+ * إعدادات اللعب الجماعي في موضع واحد.
+ * لا تكرّر أيًّا من هذه الأرقام في الخادم أو الواجهة — اقرأها من هنا دائمًا.
+ */
+export interface MultiplayerConfig {
+  /** أقصى عدد مشاركين في الغرفة الواحدة (بشر + بوتات). */
+  MAX_PLAYERS_PER_ROOM: number;
+  /** أقل عدد لاعبين بشر لبدء الغرفة قبل انتهاء مهلة المطابقة. */
+  MIN_PLAYERS_TO_START: number;
+  /** مهلة البحث عن خصوم بالمللي ثانية قبل اللجوء إلى ملء البوتات. */
+  MATCHMAKING_TIMEOUT: number;
+  /** هل يُسمح بملء المقاعد الشاغرة ببوتات معلنة؟ */
+  BOT_FILL_ENABLED: boolean;
+  /** مدة العد التنازلي قبل انطلاق الجولة. */
+  COUNTDOWN_MS: number;
+  /** مهلة السماح بالعودة بعد انقطاع الاتصال. */
+  RECONNECT_GRACE_MS: number;
+  /** معدل بث لقطات الحالة في الثانية. */
+  SNAPSHOT_HZ: number;
+  /** معدل بث الإطار المفتاحي الكامل (الأرض) في الثانية. */
+  KEYFRAME_HZ: number;
+  /** معدل محاكاة الخادم في الثانية. */
+  TICK_HZ: number;
+}
+
+export const MULTIPLAYER: MultiplayerConfig = {
+  MAX_PLAYERS_PER_ROOM: 10,
+  MIN_PLAYERS_TO_START: 2,
+  MATCHMAKING_TIMEOUT: 6000,
+  BOT_FILL_ENABLED: true,
+  COUNTDOWN_MS: 3000,
+  RECONNECT_GRACE_MS: 30000,
+  SNAPSHOT_HZ: 15,
+  KEYFRAME_HZ: 0.5,
+  TICK_HZ: 60,
+};
+
+/** آلة حالات الجولة. الخادم هو المرجع، والواجهة تتفاعل فقط. */
+export type MatchState = 'WAITING' | 'MATCHMAKING' | 'COUNTDOWN' | 'PLAYING' | 'FINISHED';
+
+export type RegionId = 'eu' | 'us' | 'asia';
+
+export interface RegionInfo {
+  id: RegionId;
+  /** الاسم المعروض بالعربية. */
+  name: string;
+  /**
+   * هل يستضيف هذا الخادم هذه المنطقة فعليًا؟
+   * منطقة واحدة فقط مستضافة الآن، والبقية تُعرض كخيارات غير مُقاسة —
+   * لا نخترع أرقام زمن استجابة لمناطق لا نملك فيها خادمًا.
+   */
+  hosted: boolean;
+}
+
+export const REGIONS: readonly RegionInfo[] = [
+  { id: 'eu', name: 'أوروبا', hosted: false },
+  { id: 'us', name: 'أمريكا', hosted: false },
+  { id: 'asia', name: 'آسيا', hosted: false },
+];
+
+export const DEFAULT_REGION: RegionId = 'eu';
+
+export function isRegionId(value: unknown): value is RegionId {
+  return value === 'eu' || value === 'us' || value === 'asia';
+}
+
+// --------------------------------------------------------------- البروتوكول
+
+/** مسار الاتصال اللحظي. */
+export const REALTIME_PATH = '/ws';
+/** رقم البروتوكول — يرفض الخادم أي عميل قديم بدل أن يتصرّف بغرابة. */
+export const NET_PROTOCOL_VERSION = 1;
+
+/**
+ * حالة مشارك واحد داخل اللقطة، كمصفوفة مضغوطة بدل كائن:
+ * [id, x*100, y*100, heading*1000, flags, area]
+ * الأعداد صحيحة كي يبقى نص JSON قصيرًا — اللقطة تُبث 15 مرة في الثانية.
+ */
+export type NetActor = [number, number, number, number, number, number];
+
+export const NET_FLAG_ALIVE = 1;
+export const NET_FLAG_OUTSIDE = 2;
+/** دقة إرسال الموضع (خانتان عشريتان = 1٪ من الخلية). */
+export const NET_POS_SCALE = 100;
+export const NET_ANGLE_SCALE = 1000;
+
+/** صف في لوحة صدارة الجولة — يبنيه الخادم بالكامل. */
+export interface NetLeaderEntry {
+  actorId: number;
+  name: string;
+  kind: 'human' | 'bot';
+  colorIndex: number;
+  areaPercent: number;
+  /** خرج من الجولة نهائيًا. */
+  eliminated: boolean;
+  avatarUrl: string | null;
+}
+
+/** سطر في شريط الإخراجات — أسماء عرض حقيقية كما اعتمدها الخادم. */
+export type NetFeedItem =
+  | { k: 'kill'; killer: string; victim: string; killerActorId: number; victimActorId: number }
+  | { k: 'out'; victim: string; victimActorId: number };
+
+/** أحداث الجولة الموثوقة القادمة من الخادم. */
+export type NetEvent =
+  | { e: 'kill'; killerActorId: number; victimActorId: number; x: number; y: number }
+  | { e: 'death'; actorId: number; eliminated: boolean }
+  | { e: 'respawn'; actorId: number }
+  | { e: 'capture'; actorId: number; gained: number }
+  /** مكافأة مؤكَّدة من الخادم — الواجهة لا تحسب العملات من عندها. */
+  | { e: 'coins'; total: number; gained: number };
+
+export interface RoomDescriptor {
+  roomId: string;
+  region: RegionId;
+  seed: number;
+  config: MatchConfig;
+  participants: MatchParticipant[];
+  /** معرّف المشارك الذي يتحكّم به هذا العميل، كما قرّره الخادم. */
+  youActorId: number;
+  state: MatchState;
+  /** الزمن المتبقي قبل الانطلاق (0 إذا انطلقت). */
+  startsInMs: number;
+  /** عدد اللاعبين البشر في الغرفة — للشفافية لا أكثر. */
+  humans: number;
+}
+
+export interface NetRoundResult {
+  outcome: RoundOutcome;
+  rank: number;
+  participants: number;
+  areaPercent: number;
+  /** عملات الجولة كما احتسبها الخادم فقط. */
+  coins: number;
+  kills: number;
+  leaderboard: NetLeaderEntry[];
+  matchId: string;
+  /** أفضل نسبة مساحة في تاريخ اللاعب، بعد حفظ هذه الجولة. */
+  bestAreaPercent: number;
+  /** عدد جولاته الكلي بعد حفظ هذه الجولة. */
+  rounds: number;
+}
+
+/** رسائل العميل إلى الخادم: نيّة وإدخال فقط — لا نتائج ولا هوية. */
+export type ClientMessage =
+  | { t: 'hello'; v: number; token: string }
+  | { t: 'queue'; region: RegionId }
+  | { t: 'cancel' }
+  | { t: 'input'; h: number; r: number }
+  | { t: 'ping'; n: number }
+  | { t: 'leave' };
+
+export type ServerMessage =
+  | { t: 'welcome'; v: number; version: string; regions: RegionInfo[]; serverRegion: RegionId; name: string }
+  | { t: 'queued'; region: RegionId; waiting: number; needed: number; timeoutMs: number }
+  | { t: 'room'; room: RoomDescriptor }
+  | { t: 'state'; state: MatchState; startsInMs: number }
+  | { t: 'snap'; tick: number; elapsed: number; actors: NetActor[]; lb: NetLeaderEntry[] }
+  | { t: 'key'; tick: number; owner: string; trail: string; actors: NetActor[] }
+  | { t: 'events'; items: NetEvent[]; feed: NetFeedItem[] }
+  | { t: 'over'; result: NetRoundResult }
+  | { t: 'pong'; n: number }
+  | { t: 'error'; code: string; message: string };

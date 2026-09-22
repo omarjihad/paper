@@ -33,6 +33,10 @@ export interface ParticipantSpec {
  */
 export class GameEngine implements WorldView {
   readonly config: MatchConfig;
+  /** هل هذه النسخة هي المرجع؟ المرآة على جهاز اللاعب تضع false. */
+  readonly authoritative: boolean;
+  /** هل ينهي موتُ لاعبٍ بشري الجولةَ كلها؟ (لا في الغرف الجماعية) */
+  readonly endOnHumanDeath: boolean;
   readonly grid: Grid;
   readonly rng: Rng;
   readonly actors: Actor[] = [];
@@ -58,6 +62,8 @@ export class GameEngine implements WorldView {
 
   constructor(options: EngineOptions) {
     this.config = options.config;
+    this.authoritative = options.authoritative ?? true;
+    this.endOnHumanDeath = options.endOnHumanDeath ?? true;
     this.grid = new Grid(options.config.gridWidth, options.config.gridHeight);
     this.rng = new Rng(options.seed);
     this.capture = new CaptureSolver(this.grid);
@@ -79,6 +85,17 @@ export class GameEngine implements WorldView {
 
   get human(): Actor | undefined {
     return this.byId.get(this.humanId);
+  }
+
+  /**
+   * المشارك الذي تتبعه الكاميرا على هذا الجهاز.
+   * في غرفة فيها أكثر من لاعب بشري لا يكفي «أول لاعب بشري»: كل جهاز
+   * يجب أن يتابع صاحبه هو، وإلا رأى اللاعب الملعب من عيني خصمه.
+   */
+  focusActorId = 0;
+
+  get focus(): Actor | undefined {
+    return this.byId.get(this.focusActorId) ?? this.human ?? this.actors[0];
   }
 
   ownerAt(x: number, y: number): number {
@@ -155,7 +172,7 @@ export class GameEngine implements WorldView {
     };
     this.actors.push(actor);
     this.byId.set(actor.id, actor);
-    if (spec.kind === 'human') this.humanId = actor.id;
+    if (spec.kind === 'human' && this.humanId === 0) this.humanId = actor.id;
     this.placeActor(actor);
     return actor;
   }
@@ -181,7 +198,12 @@ export class GameEngine implements WorldView {
 
     this.resolveCollisions();
 
-    if (this.status === 'running' && this.config.roundSeconds > 0 && this.elapsed >= this.config.roundSeconds) {
+    if (
+      this.authoritative &&
+      this.status === 'running' &&
+      this.config.roundSeconds > 0 &&
+      this.elapsed >= this.config.roundSeconds
+    ) {
       this.end('timeup');
     }
   }
@@ -282,7 +304,7 @@ export class GameEngine implements WorldView {
       }
     } else if (trailOwner !== 0) {
       const victim = this.byId.get(trailOwner);
-      if (victim && victim.alive) {
+      if (victim && victim.alive && this.authoritative) {
         actor.kills++;
         this.events.push({
           type: 'kill',
@@ -406,7 +428,23 @@ export class GameEngine implements WorldView {
     }
   }
 
+  /**
+   * خروج مشارك من الجولة.
+   * في المرآة لا يُنفَّذ أبدًا من المحاكاة المحلية — الخادم وحده يقرّر،
+   * ثم يصل قراره عبر applyDeath. بلا هذا الفصل يخترع العميل قتلى لا وجود لهم.
+   */
   private killActor(actor: Actor, cause: 'self' | 'trail' | 'collision' | 'wiped'): void {
+    if (!this.authoritative) return;
+    this.performKill(actor, cause);
+  }
+
+  /** تطبيق قرار موت صادر عن الخادم على نسخة المرآة. */
+  applyDeath(actorId: number, cause: 'self' | 'trail' | 'collision' | 'wiped' = 'trail'): void {
+    const actor = this.byId.get(actorId);
+    if (actor) this.performKill(actor, cause);
+  }
+
+  private performKill(actor: Actor, cause: 'self' | 'trail' | 'collision' | 'wiped'): void {
     if (!actor.alive) return;
     actor.alive = false;
     actor.deaths++;
@@ -428,8 +466,9 @@ export class GameEngine implements WorldView {
     this.controllers.get(actor.id)?.reset?.();
 
     if (actor.kind === 'bot') {
-      actor.respawnAt = this.elapsed + this.config.botRespawnSeconds;
-    } else {
+      // البوت يعود بعد مهلة؛ في المرآة يصل قرار العودة من الخادم لا من هنا.
+      actor.respawnAt = this.authoritative ? this.elapsed + this.config.botRespawnSeconds : -1;
+    } else if (this.endOnHumanDeath) {
       this.end('eliminated');
     }
   }

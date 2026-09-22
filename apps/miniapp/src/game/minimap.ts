@@ -66,7 +66,7 @@ export class Minimap {
     );
 
     // موقع اللاعب.
-    const human = engine.human;
+    const human = engine.focus;
     if (human && human.alive) {
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();

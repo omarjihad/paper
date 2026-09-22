@@ -1,16 +1,19 @@
-import type { BotDifficulty } from '@riqaa/shared';
+import type { BotBehavior, BotDifficulty } from '@riqaa/shared';
 import type { Rng } from '../rng.js';
 import { DX, DY, type Actor, type ActorController, type Dir, type WorldView } from '../types.js';
-import { BOT_PROFILES, type BotProfile } from './profiles.js';
+import { resolveBotProfile, type ResolvedBotProfile } from './profiles.js';
 
 type BotMode = 'plan' | 'expand' | 'hunt' | 'return';
 
 /**
  * بوت بآلة حالات صغيرة: يخطط خرجة، ينفذها، ثم يعود.
  * لا بحث مسارات ثقيل — قرار واحد رخيص عند كل حدود خلية.
+ *
+ * الصعوبة تضبط إتقان القرار، والنمط يضبط أسلوبه (استكشاف، دفاع، هجوم…)،
+ * والقواعد المطبَّقة هي نفسها قواعد الأرض والمسار والاستحواذ — بلا استثناء.
  */
 export class BotController implements ActorController {
-  private readonly profile: BotProfile;
+  private readonly profile: ResolvedBotProfile;
   private mode: BotMode = 'plan';
   private targetX = -1;
   private targetY = -1;
@@ -21,8 +24,9 @@ export class BotController implements ActorController {
     readonly actorId: number,
     readonly difficulty: BotDifficulty,
     private readonly rng: Rng,
+    readonly behavior: BotBehavior = 'balanced',
   ) {
-    this.profile = BOT_PROFILES[difficulty];
+    this.profile = resolveBotProfile(difficulty, behavior);
   }
 
   reset(): void {
@@ -67,13 +71,36 @@ export class BotController implements ActorController {
     // فتُغلق الحلقة عند العودة وتُحتسب المساحة المحصورة.
     const depth = this.rng.int(this.profile.minDepth, this.profile.maxDepth);
     const width = this.rng.int(2, Math.max(2, (depth / 2) | 0) + 2);
-    const outward = this.rng.int(0, 3) as Dir;
+    const outward = this.pickOutward(world, actor);
     const side = ((outward + (this.rng.next() < 0.5 ? 1 : 3)) & 3) as Dir;
 
     this.mode = 'expand';
     this.targetX = clamp(actor.cx + DX[outward] * depth + DX[side] * width, 1, world.width - 2);
     this.targetY = clamp(actor.cy + DY[outward] * depth + DY[side] * width, 1, world.height - 2);
     this.preferHorizontal = DX[outward] !== 0;
+  }
+
+  /**
+   * اختيار جهة الخرجة.
+   * كلما زاد roam مال البوت إلى الابتعاد عن مركز أرضه بدل الدوران حول حافتها،
+   * وهذا وحده ما يفرّق «المستكشف» عن «المدافع» في الشكل الظاهر على الخريطة.
+   */
+  private pickOutward(world: WorldView, actor: Actor): Dir {
+    if (this.profile.roam <= 0 || this.rng.next() > this.profile.roam) {
+      return this.rng.int(0, 3) as Dir;
+    }
+    const homeX = (actor.minX + actor.maxX) / 2;
+    const homeY = (actor.minY + actor.maxY) / 2;
+    const dx = actor.cx - homeX;
+    const dy = actor.cy - homeY;
+    // الابتعاد عن مركز الأرض، مع إبقاء الوجهة داخل الملعب.
+    let dir: Dir;
+    if (Math.abs(dx) >= Math.abs(dy)) dir = dx >= 0 ? 0 : 2;
+    else dir = dy >= 0 ? 1 : 3;
+    const nx = actor.cx + DX[dir] * this.profile.minDepth;
+    const ny = actor.cy + DY[dir] * this.profile.minDepth;
+    if (!world.inBounds(nx, ny)) dir = ((dir + 2) & 3) as Dir;
+    return dir;
   }
 
   private beginReturn(world: WorldView, actor: Actor): void {
@@ -103,6 +130,11 @@ export class BotController implements ActorController {
         if (!world.inBounds(x, y)) continue;
         const owner = world.trailAt(x, y);
         if (owner === 0 || owner === actor.id) continue;
+        // المتربّص لا يطارد إلا من تورّط فعلًا: مسار طويل ومكشوف.
+        if (this.profile.opportunistic) {
+          const prey = world.actorById(owner);
+          if (!prey || !prey.alive || prey.trail.length < OPPORTUNIST_MIN_TRAIL) continue;
+        }
         const distance = Math.abs(x - actor.cx) + Math.abs(y - actor.cy);
         if (distance < bestDistance) {
           bestDistance = distance;
@@ -159,6 +191,9 @@ export class BotController implements ActorController {
     return true;
   }
 }
+
+/** أقل طول مسار يعتبره المتربّص فرصة تستحق المخاطرة. */
+const OPPORTUNIST_MIN_TRAIL = 6;
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;

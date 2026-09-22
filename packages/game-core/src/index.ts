@@ -7,3 +7,5 @@ export * from './controllers.js';
 export * from './bots/profiles.js';
 export * from './bots/botController.js';
 export * from './match.js';
+export * from './net/codec.js';
+export * from './net/sync.js';

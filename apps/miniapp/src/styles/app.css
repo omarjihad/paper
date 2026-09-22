@@ -754,6 +754,160 @@ body {
   transition: opacity 400ms ease;
 }
 
+/* ===================== شاشة المطابقة ===================== */
+/* زر الإلغاء ثانويّ هنا: لا يأخذ عرض الشاشة كأنه الفعل الرئيسي. */
+.mm .btn {
+  width: auto;
+  padding: 10px 26px;
+  font-size: 14px;
+}
+
+.mm__bar {
+  width: min(280px, 70vw);
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.mm__bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-deep) 100%);
+}
+
+.mm__regions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.mm__region {
+  display: grid;
+  gap: 1px;
+  padding: 6px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mm__region em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.mm__region--on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mm__meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.mm__count {
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--accent);
+  direction: ltr;
+  min-height: 0;
+}
+
+.mm__count:empty {
+  display: none;
+}
+
+/* ===================== شريط الإخراجات ===================== */
+.feed {
+  position: absolute;
+  top: calc(var(--safe-top) + 54px);
+  right: calc(var(--safe-right) + 12px);
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  pointer-events: none;
+  max-width: 48vw;
+}
+
+.feed__row {
+  background: rgba(14, 20, 32, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  color: #c7d2e2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  animation: feed-in 220ms ease;
+}
+
+.feed__row b {
+  color: #e9eef6;
+  font-weight: 800;
+}
+
+.feed__row--me {
+  border-color: var(--accent-line);
+}
+
+.feed__row--me b:first-child {
+  color: var(--accent);
+}
+
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* الخارجون من الجولة يبقون في اللوحة باهتين كي يظل الترتيب مفهومًا. */
+.lb__row--out {
+  opacity: 0.42;
+}
+
+.lb__row--out .lb__area {
+  text-decoration: line-through;
+}
+
+/* العد التنازلي فوق الملعب قبل الانطلاق. */
+.go {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 72px;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  background: rgba(8, 12, 20, 0.35);
+  pointer-events: none;
+  direction: ltr;
+}
+
+.go:empty {
+  display: none;
+}
+
+.hud__chip--ping {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===================== النتيجة ===================== */
 .result {
   position: absolute;
@@ -1129,6 +1283,60 @@ body {
     width: 30px;
     height: 30px;
     font-size: 15px;
+  }
+
+/* الشاشة قصيرة في وضع العرض: الشريط والعدّاد أصغر كي لا يزاحما الملعب. */
+:root[data-layout='landscape'] .feed {
+    top: calc(var(--safe-top) + 40px);
+    max-width: 34vw;
+  }
+
+:root[data-layout='landscape'] .feed__row {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 8px;
+  }
+
+:root[data-layout='landscape'] .go {
+    font-size: 52px;
+  }
+
+:root[data-layout='landscape'] .mm__count {
+    font-size: 26px;
+  }
+
+/* في وضع العرض الشاشة قصيرة: عمودان بدل تسعة صفوف متراصّة. */
+:root[data-layout='landscape'] .mm {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 6px 22px;
+    padding: 12px 24px;
+  }
+
+:root[data-layout='landscape'] .mm > .state__title,
+  :root[data-layout='landscape'] .mm > .state__text,
+  :root[data-layout='landscape'] .mm__bar,
+  :root[data-layout='landscape'] .mm__regions,
+  :root[data-layout='landscape'] .mm__meta,
+  :root[data-layout='landscape'] .mm .btn {
+    flex: 1 1 100%;
+  }
+
+/* الشعار والمربعات يقفان معًا على يمين الشاشة كعلامة بصرية واحدة. */
+:root[data-layout='landscape'] .mm > .state__logo,
+  :root[data-layout='landscape'] .mm > .tiles {
+    flex: 0 0 auto;
+  }
+
+:root[data-layout='landscape'] .mm > .state__title {
+    flex-basis: auto;
+    font-size: 17px;
+  }
+
+:root[data-layout='landscape'] .mm__region {
+    padding: 4px 11px;
+    font-size: 11.5px;
   }
 
 :root[data-layout='landscape'] .lb {

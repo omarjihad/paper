@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   ACTOR_COLORS,
+  BOT_BEHAVIORS,
   DEFAULT_MATCH_CONFIG,
   type BotDifficulty,
   type MatchParticipant,
@@ -32,8 +33,9 @@ const BOT_LINEUP: readonly BotDifficulty[] = [
 const MATCH_TTL_MS = 30 * 60 * 1000;
 
 /**
- * إدارة الجولات. حاليًا الجولة تُحاكى على جهاز اللاعب والخادم يصدر وصفها فقط،
- * لكن نفس هذه الطبقة هي المكان الذي ستُدار فيه الجولات الشبكية لاحقًا.
+ * الجولة الفردية المحلية: الخادم يصدر وصفها والجهاز يحاكيها.
+ * تبقى كمسار احتياطي حين يتعذّر الوصول إلى خادم اللعب الجماعي اللحظي،
+ * أما اللعب الجماعي الموثوق فمكانه modules/room.
  */
 export class MatchService {
   private readonly active = new Map<string, ActiveMatch>();
@@ -55,6 +57,7 @@ export class MatchService {
         name: `بوت ${index + 1}`,
         colorIndex: (index + 1) % ACTOR_COLORS.length,
         difficulty,
+        behavior: BOT_BEHAVIORS[index % BOT_BEHAVIORS.length],
       });
     });
 

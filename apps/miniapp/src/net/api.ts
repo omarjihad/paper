@@ -52,6 +52,11 @@ export class ApiClient {
     return Boolean(this.token);
   }
 
+  /** رمز الجلسة — تحتاجه وصلة اللعب اللحظي للمصادقة. */
+  getToken(): string | null {
+    return this.token;
+  }
+
   clearToken(): void {
     this.token = null;
     writeStorage(TOKEN_KEY, '');

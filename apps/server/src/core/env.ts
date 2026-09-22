@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { DEFAULT_REGION, isRegionId, type RegionId } from '@riqaa/shared';
 
 /** قيمة تطوير معروفة — لا يُسمح بها في الإنتاج إطلاقًا. */
 export const DEV_SESSION_SECRET = 'riqaa-dev-secret-change-me';
@@ -20,6 +21,11 @@ export interface Env {
   publicUrl: string;
   /** رمز حماية webhook تيليجرام. */
   telegramWebhookSecret: string;
+  /**
+   * المنطقة التي يعمل منها هذا الخادم فعلًا.
+   * تُعرض للاعبين كالمنطقة الوحيدة القابلة للقياس — لا نخترع مناطق لا نستضيفها.
+   */
+  serverRegion: RegionId;
 }
 
 /**
@@ -59,7 +65,13 @@ export function loadEnv(): Env {
     initDataMaxAge: Number(process.env.INIT_DATA_MAX_AGE ?? 86400),
     publicUrl: resolvePublicUrl(),
     telegramWebhookSecret: resolveWebhookSecret(clean(process.env.SESSION_SECRET) || DEV_SESSION_SECRET),
+    serverRegion: resolveRegion(clean(process.env.SERVER_REGION)),
   };
+}
+
+function resolveRegion(value: string): RegionId {
+  const lower = value.toLowerCase();
+  return isRegionId(lower) ? lower : DEFAULT_REGION;
 }
 
 /**

@@ -121,4 +121,15 @@ export interface ActorController {
 export interface EngineOptions {
   config: MatchConfig;
   seed: number;
+  /**
+   * false = نسخة «مرآة» تعمل على جهاز اللاعب للرسم فقط.
+   * المرآة لا تُصدر أحكامًا: لا موت ولا إخراج ولا نهاية جولة من عندها،
+   * بل تنتظر قرار الخادم. هذا هو الفرق الوحيد بين النسختين.
+   */
+  authoritative?: boolean;
+  /**
+   * هل تنتهي الجولة بموت اللاعب البشري؟
+   * صحيح في الجولة الفردية، وخطأ في الغرف حيث يخرج اللاعب وتكمل الغرفة.
+   */
+  endOnHumanDeath?: boolean;
 }

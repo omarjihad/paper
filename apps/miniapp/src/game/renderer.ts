@@ -78,7 +78,7 @@ export class Renderer {
     const { ctx, engine } = this;
     const cell = engine.config.cellSize * this.scale;
 
-    const focus = engine.human ?? engine.actors[0];
+    const focus = engine.focus ?? engine.actors[0];
     const targetX = engine.renderX(focus);
     const targetY = engine.renderY(focus);
 
@@ -249,7 +249,8 @@ export class Renderer {
       const px = offsetX + engine.renderX(actor) * cell - head / 2;
       const py = offsetY + engine.renderY(actor) * cell - head / 2;
 
-      if (actor.kind === 'human') {
+      // التوهّج للاعب هذا الجهاز وحده — وإلا تشابه عليه رأسه ورؤوس خصومه.
+      if (actor.id === engine.focusActorId) {
         ctx.shadowColor = this.headColor[actor.id] ?? '#fff';
         ctx.shadowBlur = 14;
       }

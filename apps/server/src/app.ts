@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { APP_VERSION } from '@riqaa/shared';
+import { APP_VERSION, MULTIPLAYER } from '@riqaa/shared';
 import type { Env } from './core/env.js';
 import { AppError } from './core/errors.js';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
@@ -14,6 +14,9 @@ import type { TelegramBot } from './modules/bot/bot.service.js';
 import { registerMatchRoutes } from './modules/match/match.routes.js';
 import { MatchService } from './modules/match/match.service.js';
 import type { PlayerRepository } from './modules/players/player.repository.js';
+import { regionCatalog } from './modules/room/regions.js';
+import { RoomManager } from './modules/room/roomManager.js';
+import { attachRealtime } from './realtime/wsGateway.js';
 
 export interface AppDeps {
   env: Env;
@@ -46,12 +49,41 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     reply.status(500).send({ error: 'internal_error', message: 'حدث خطأ غير متوقع في الخادم' });
   });
 
+  // ---------------------------------------------------- اللعب الجماعي اللحظي
+  const rooms = new RoomManager(deps.players, (message) => app.log.info(`[غرف] ${message}`));
+  rooms.start();
+  const detachRealtime = attachRealtime(app.server, {
+    env: deps.env,
+    players: deps.players,
+    rooms,
+    serverRegion: deps.env.serverRegion,
+    log: (message) => app.log.warn(`[لحظي] ${message}`),
+  });
+  app.addHook('onClose', async () => {
+    detachRealtime();
+    rooms.stop();
+  });
+
   app.get('/api/health', async () => ({
     ok: true,
     version: APP_VERSION,
     storage: deps.players.kind,
     telegram: deps.env.telegramBotToken ? 'configured' : 'missing',
     bot: deps.bot ? 'enabled' : 'disabled',
+    realtime: rooms.stats,
+    region: deps.env.serverRegion,
+  }));
+
+  /** قائمة المناطق — المستضافة منها واحدة، والباقي معروضة بلا قياس. */
+  app.get('/api/regions', async () => ({
+    regions: regionCatalog(deps.env.serverRegion),
+    serverRegion: deps.env.serverRegion,
+    config: {
+      maxPlayersPerRoom: MULTIPLAYER.MAX_PLAYERS_PER_ROOM,
+      minPlayersToStart: MULTIPLAYER.MIN_PLAYERS_TO_START,
+      matchmakingTimeout: MULTIPLAYER.MATCHMAKING_TIMEOUT,
+      botFillEnabled: MULTIPLAYER.BOT_FILL_ENABLED,
+    },
   }));
 
   const matches = new MatchService();

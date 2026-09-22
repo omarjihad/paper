@@ -8,6 +8,8 @@ export interface LeaderRow {
   color: string;
   isHuman: boolean;
   avatarUrl?: string | null;
+  /** خرج من الجولة — يُعرض باهتًا ولا يُحذف كي يبقى الترتيب مفهومًا. */
+  eliminated?: boolean;
 }
 
 const VISIBLE_ROWS = 5;
@@ -85,6 +87,7 @@ function paint(view: RowView, row: LeaderRow): void {
   view.area.textContent = `${row.area.toFixed(2)}٪`;
   view.badge.style.background = row.color;
   view.element.classList.toggle('lb__row--me', row.isHuman);
+  view.element.classList.toggle('lb__row--out', Boolean(row.eliminated));
 
   const url = row.avatarUrl ?? null;
   if (url !== view.avatarUrl) {
