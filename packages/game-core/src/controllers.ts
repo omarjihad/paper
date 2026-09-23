@@ -60,8 +60,17 @@ export class RemoteController implements ActorController {
     /** سرعة اللعبة بالخلايا في الثانية — تُستخدم في الاستقراء. */
     private readonly speed: number,
     /** أقصى زمن استقراء مسموح به بالثواني، حتى لا يهيم المشارك عند انقطاع البث. */
-    private readonly maxExtrapolation = 0.4,
+    private maxExtrapolation = 0.4,
   ) {}
+
+  /**
+   * توسيع نافذة الاستقراء على الوصلات الضعيفة.
+   * حين تتباعد اللقطات يجب أن يواصل الخصم سيره بينها، وإلا بدا متقطّعًا
+   * يقف وينطّ. والنافذة تبقى محدودة كي لا يهيم إن انقطع البث فعلًا.
+   */
+  setWindow(seconds: number): void {
+    this.maxExtrapolation = Math.min(0.9, Math.max(0.2, seconds));
+  }
 
   /** لقطة جديدة من الخادم. */
   setTarget(x: number, y: number, heading: number, throttle: number, now: number): void {

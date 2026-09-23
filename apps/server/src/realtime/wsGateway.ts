@@ -20,8 +20,12 @@ import type { ClientLink } from '../modules/room/room.js';
 
 /** أقصى طول رسالة مقبول من العميل — الإدخال أسطر قصيرة لا غير. */
 const MAX_MESSAGE_BYTES = 2048;
-/** فحص حيوية الوصلات. */
-const HEARTBEAT_MS = 15000;
+/**
+ * فحص حيوية الوصلات وقياس زمنها.
+ * النبضة هنا ليست للحياة فقط: منها يُشتق زمن الاستجابة الذي يقرّر حصة
+ * اللاعب من اللقطات، فيجب أن تكون متقاربة بما يكفي ليواكب القرارُ الشبكةَ.
+ */
+const HEARTBEAT_MS = 4000;
 /**
  * كم من الصمت يعني وصلة ميتة فعلًا.
  * المتصفح يخنق المؤقتات حين يُصغَّر التطبيق، فتتأخر نبضات العميل؛ قطعُ
@@ -35,6 +39,10 @@ interface Session {
   playerId: string | null;
   /** آخر إشارة حياة من هذه الوصلة: نبضة أو رسالة. */
   lastSeen: number;
+  /** متى أُرسلت آخر نبضة، لقياس زمن الذهاب والإياب من الرد عليها. */
+  pingAt: number;
+  /** متوسط متحرّك لزمن الاستجابة المقاس على الخادم. */
+  rtt: number;
 }
 
 export interface GatewayDeps {
@@ -73,12 +81,20 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
       socket,
       playerId: null,
       lastSeen: Date.now(),
+      pingAt: 0,
+      rtt: 0,
       link: {
         send(message: ServerMessage) {
           if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
         },
         sendRaw(text: string) {
           if (socket.readyState === socket.OPEN) socket.send(text);
+        },
+        rttMs() {
+          return session.rtt;
+        },
+        saturated() {
+          return socket.bufferedAmount > MULTIPLAYER.SEND_BUFFER_LIMIT;
         },
         close(code: string, reason: string) {
           session.link.send({ t: 'error', code, message: reason });
@@ -90,6 +106,11 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
 
     socket.on('pong', () => {
       session.lastSeen = Date.now();
+      if (session.pingAt === 0) return;
+      const sample = Date.now() - session.pingAt;
+      session.pingAt = 0;
+      // متوسط متحرّك: قرار التخفيف يجب ألّا يتأرجح مع كل قفزة عابرة.
+      session.rtt = session.rtt === 0 ? sample : Math.round(session.rtt * 0.7 + sample * 0.3);
     });
 
     socket.on('message', (raw: unknown) => {
@@ -227,6 +248,7 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
         continue;
       }
       try {
+        session.pingAt = now;
         session.socket.ping();
       } catch {
         session.socket.terminate();

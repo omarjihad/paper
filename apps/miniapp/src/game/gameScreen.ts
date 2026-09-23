@@ -12,8 +12,11 @@ import {
 import {
   ACTOR_COLORS,
   KILL_REWARD_COINS,
+  LINK_GRADE_LABEL,
+  gradeLink,
   type MatchConfig,
   type MatchParticipant,
+  type DeathCause,
   type MatchState,
   type NetActor,
   type NetRoundResult,
@@ -23,6 +26,7 @@ import type { RealtimeClient } from '../net/realtime.js';
 import { haptic, onViewportChange, requestLandscape } from '../telegram.js';
 import { h } from '../ui/dom.js';
 import { Leaderboard, type LeaderRow } from '../ui/leaderboard.js';
+import { DeathCam, DeathRecorder, type DeathReplay } from './deathcam.js';
 import { EliminationFeed } from './feed.js';
 import { InputController } from './input.js';
 import { Renderer } from './renderer.js';
@@ -86,6 +90,8 @@ export class GameScreen {
   private readonly overlay: HTMLElement;
   private readonly leaderboard = new Leaderboard();
   private readonly feed = new EliminationFeed();
+  private readonly recorder: DeathRecorder;
+  private readonly deathCam = new DeathCam();
   private readonly leaderRows: LeaderRow[] = [];
 
   private stopViewportWatch: (() => void) | null = null;
@@ -111,6 +117,10 @@ export class GameScreen {
   private eliminated = false;
   /** true أثناء محاولة العودة بعد انقطاع — يُعرض للاعب ولا يوقف الرسم. */
   private reconnecting = false;
+  /** نافذة استقراء الخصوم الحالية بالثواني — تتبع قوة الوصلة. */
+  private extrapolationWindow = 0.4;
+  /** آخر قطع مسار رُصد — يربط حدث الموت بمن تسبّب فيه في الجولة المحلية. */
+  private lastKill: { killerId: number; victimId: number; x: number; y: number } | null = null;
 
   /** لقطة آخر حالة حيّة — لأن الأرض تُحرَّر لحظة الخروج من الجولة. */
   private snapshotArea = 0;
@@ -160,6 +170,8 @@ export class GameScreen {
       ['✕'],
     );
 
+    this.recorder = new DeathRecorder(this.world.engine);
+
     this.element = h('div', { class: 'screen game' }, [
       this.canvas,
       h('div', { class: 'hud' }, [
@@ -174,6 +186,7 @@ export class GameScreen {
       this.feed.element,
       this.hint,
       this.overlay,
+      this.deathCam.element,
     ]);
 
     this.renderer = new Renderer(this.canvas, this.world.engine);
@@ -220,6 +233,7 @@ export class GameScreen {
     for (const off of this.unbind) off();
     this.unbind.length = 0;
     this.feed.destroy();
+    this.deathCam.destroy();
     // لا نفك القفل: التطبيق كله يعمل بالعرض، لا الجولة وحدها.
     this.element.remove();
   }
@@ -271,6 +285,7 @@ export class GameScreen {
     }
 
     this.consumeEvents();
+    this.recorder.sample(delta);
     this.renderer.draw(this.input.joystick, delta);
 
     if (time - this.hudClock >= HUD_INTERVAL_MS) {
@@ -300,7 +315,15 @@ export class GameScreen {
         haptic('light');
       } else if (event.type === 'death' && event.actorId === this.localActorId) {
         haptic('error');
+        const blame = this.lastKill;
+        this.openDeathCam(
+          event.cause,
+          blame && blame.victimId === this.localActorId ? blame.killerId : null,
+          blame?.x ?? this.world.local?.x ?? 0,
+          blame?.y ?? this.world.local?.y ?? 0,
+        );
       } else if (event.type === 'kill') {
+        this.lastKill = { killerId: event.killerId, victimId: event.victimId, x: event.x, y: event.y };
         this.showKill(event.killerId, event.victimId, event.x, event.y);
         if (event.killerId === this.localActorId) this.addCoins(this.coins + KILL_REWARD_COINS);
       }
@@ -368,6 +391,14 @@ export class GameScreen {
     const engine = this.world.engine;
     const now = Date.now();
 
+    // كلما ضعفت الوصلة تباعدت اللقطات، فتتّسع نافذة استقراء الخصوم بقدرها.
+    const rtt = this.net?.pingMs ?? 0;
+    const window = 0.15 + rtt / 1000;
+    if (Math.abs(window - this.extrapolationWindow) > 0.05) {
+      this.extrapolationWindow = window;
+      for (const remote of this.world.remotes.values()) remote.setWindow(window);
+    }
+
     for (const packed of actors) {
       const state = unpackActor(packed);
       const actor = engine.actorById(state.id);
@@ -411,12 +442,20 @@ export class GameScreen {
         return;
       case 'death': {
         const actorId = Number(event.actorId);
-        this.world.engine.applyDeath(actorId, 'trail');
+        const cause = (event.cause as DeathCause) ?? 'trail';
+        this.world.engine.applyDeath(actorId, cause);
         if (actorId === this.localActorId) {
           this.eliminated = true;
           haptic('error');
           this.hint.style.opacity = '1';
           this.hint.textContent = 'خرجت من الجولة — بانتظار النتيجة';
+          // الحكم من الخادم، والصورة من تسجيل الجهاز.
+          this.openDeathCam(
+            cause,
+            event.killerActorId === null ? null : Number(event.killerActorId),
+            Number(event.x),
+            Number(event.y),
+          );
         }
         return;
       }
@@ -457,6 +496,29 @@ export class GameScreen {
 
   // -------------------------------------------------------------- العرض
 
+  /** يعرض للاعب كيف خرج من الجولة: آخر ثوانٍ مبطّأةً حول نقطة الحدث. */
+  private openDeathCam(cause: DeathCause, killerActorId: number | null, x: number, y: number): void {
+    const engine = this.world.engine;
+    const frames = this.recorder.snapshot();
+    if (frames.length < 2) return;
+
+    const killer = killerActorId === null ? null : engine.actorById(killerActorId);
+    const replay: DeathReplay = {
+      victimActorId: this.localActorId,
+      killerActorId: killer ? killer.id : null,
+      victimName: engine.actorById(this.localActorId)?.name ?? 'أنت',
+      killerName: killer ? killer.name : null,
+      cause,
+      x,
+      y,
+      frames,
+      colorOf: (id) => ACTOR_COLORS[(engine.actorById(id)?.colorIndex ?? 0) % ACTOR_COLORS.length],
+    };
+    this.deathCam.show(replay, () => {
+      this.hint.textContent = this.net ? 'خرجت من الجولة — بانتظار النتيجة' : 'انتهت جولتك';
+    });
+  }
+
   private showKill(killerId: number, victimId: number, x: number, y: number): void {
     const victim = this.world.engine.actorById(victimId);
     const color = ACTOR_COLORS[(victim?.colorIndex ?? 0) % ACTOR_COLORS.length];
@@ -494,10 +556,11 @@ export class GameScreen {
       this.snapshotArea = this.serverArea;
       this.snapshotRank = this.serverRank;
       this.pingChip.textContent = '';
-      this.pingChip.classList.toggle('hud__chip--down', this.reconnecting);
+      const grade = gradeLink(this.net.pingMs);
+      this.pingChip.classList.toggle('hud__chip--down', this.reconnecting || grade === 'weak');
       setChip(
         this.pingChip,
-        'الاتصال',
+        this.reconnecting ? 'الاتصال' : LINK_GRADE_LABEL[grade],
         this.reconnecting ? 'يعود…' : this.net.pingMs > 0 ? `${this.net.pingMs}م.ث` : '…',
       );
     } else if (local?.alive) {

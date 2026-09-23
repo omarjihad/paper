@@ -23,6 +23,13 @@ export interface ClientLink {
   send(message: ServerMessage): void;
   /** إرسال نص مُجهَّز مسبقًا — الرسالة الواحدة تُحوَّل مرة لا مرة لكل لاعب. */
   sendRaw(text: string): void;
+  /**
+   * زمن الذهاب والإياب كما يقيسه الخادم بنفسه من نبضات WebSocket.
+   * لا نسأل العميل عنه: القياس هنا لا يُزوَّر، ويُبنى عليه قرار التخفيف.
+   */
+  rttMs(): number;
+  /** هل تكدّس في مخزن الإرسال ما يكفي ليعني أن الوصلة لا تلحق؟ */
+  saturated(): boolean;
   close(code: string, reason: string): void;
 }
 
@@ -43,6 +50,8 @@ export interface RoomPlayer {
   eliminated: boolean;
   /** آخر إدخال مقبول — يُطبَّق على وحدة تحكّم المحرك عند كل خطوة. */
   reported: boolean;
+  /** عدّاد تخفيف اللقطات: يتخطّى بعضها على الوصلات الضعيفة. */
+  snapshotSkip: number;
 }
 
 export interface RoomSeat {
@@ -113,6 +122,7 @@ export class Room {
         kills: 0,
         eliminated: false,
         reported: false,
+        snapshotSkip: 0,
       };
       this.players.set(seat.playerId, player);
       this.byActor.set(actorId, player);
@@ -307,9 +317,12 @@ export class Room {
     const items: NetEvent[] = [];
     const feed: NetFeedItem[] = [];
     const coinUpdates = new Set<RoomPlayer>();
+    /** من أخرج مَن في هذه الدفعة — المحرك يصدر القطع قبل الموت مباشرة. */
+    const killedBy = new Map<number, { killerId: number; x: number; y: number }>();
 
     for (const event of this.eventBuffer) {
       if (event.type === 'kill') {
+        killedBy.set(event.victimId, { killerId: event.killerId, x: event.x, y: event.y });
         items.push({
           e: 'kill',
           killerActorId: event.killerId,
@@ -336,7 +349,17 @@ export class Room {
           victim.eliminated = true;
           feed.push({ k: 'out', victim: victim.name, victimActorId: victim.actorId });
         }
-        items.push({ e: 'death', actorId: event.actorId, eliminated: Boolean(victim) });
+        // من أخرجه ولماذا وأين: بلا هذه الثلاثة لا يعرف اللاعب إن ظُلم أم أخطأ.
+        const blame = killedBy.get(event.actorId);
+        items.push({
+          e: 'death',
+          actorId: event.actorId,
+          eliminated: Boolean(victim),
+          cause: event.cause,
+          killerActorId: blame?.killerId ?? null,
+          x: blame?.x ?? this.world.engine.actorById(event.actorId)?.x ?? 0,
+          y: blame?.y ?? this.world.engine.actorById(event.actorId)?.y ?? 0,
+        });
       } else if (event.type === 'respawn') {
         items.push({ e: 'respawn', actorId: event.actorId });
       } else if (event.type === 'capture' && event.gained > 0) {
@@ -410,11 +433,39 @@ export class Room {
     for (const player of this.players.values()) player.link?.sendRaw(text);
   }
 
+  /**
+   * بث اللقطة مع مراعاة قوة وصلة كل لاعب.
+   *
+   * دفعُ خمس عشرة لقطة في الثانية إلى وصلة بطيئة لا يجعلها أسرع: الحزم
+   * تتكدّس في الطريق فيزداد التأخير ثم تنقطع الوصلة. فمن كانت وصلته ضعيفة
+   * يأخذ حصة أقل — وهي حصة تكفي تمامًا لأن الجهاز يستوفي ما بينها.
+   */
   private broadcastSnapshot(): void {
     const engine = this.world.engine;
     const actors = engine.actors.map((actor) => packActor(actor, engine.areaPercent(actor)));
     const lb = this.leaderboard();
-    this.broadcast({ t: 'snap', tick: this.tickCount, elapsed: engine.elapsed, actors, lb });
+    const text = JSON.stringify({
+      t: 'snap',
+      tick: this.tickCount,
+      elapsed: engine.elapsed,
+      actors,
+      lb,
+    } satisfies ServerMessage);
+
+    for (const player of this.players.values()) {
+      const link = player.link;
+      if (!link) continue;
+
+      // مخزن الإرسال ممتلئ: الوصلة لا تلحق أصلًا، وإضافة حزمة تزيد الطين بلّة.
+      if (link.saturated()) continue;
+
+      const every = snapshotDivisor(link.rttMs());
+      if (every > 1) {
+        player.snapshotSkip = (player.snapshotSkip + 1) % every;
+        if (player.snapshotSkip !== 0) continue;
+      }
+      link.sendRaw(text);
+    }
   }
 
   private sendKeyframe(player: RoomPlayer): void {
@@ -519,6 +570,16 @@ function makeBot(actorId: number, number: number): MatchParticipant {
     difficulty: difficulties[number % difficulties.length],
     behavior: behaviors[number % behaviors.length],
   };
+}
+
+/**
+ * كم لقطة نتخطّى لكل لقطة نرسلها، حسب زمن الاستجابة المقاس.
+ * الوصلة الجيدة تأخذ كل شيء، والضعيفة تأخذ ما تستطيع هضمه.
+ */
+function snapshotDivisor(rttMs: number): number {
+  if (rttMs >= MULTIPLAYER.POOR_LINK_RTT_MS) return 3;
+  if (rttMs >= MULTIPLAYER.WEAK_LINK_RTT_MS) return 2;
+  return 1;
 }
 
 function clamp01(value: number): number {

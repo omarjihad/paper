@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V12';
+export const APP_VERSION = 'V13';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -188,6 +188,16 @@ export interface MultiplayerConfig {
   KEYFRAME_HZ: number;
   /** معدل محاكاة الخادم في الثانية. */
   TICK_HZ: number;
+  /**
+   * فوق زمن الاستجابة هذا تُخفَّف حصة اللاعب من اللقطات.
+   * وصلة بطيئة لا تستفيد من خمس عشرة لقطة في الثانية: الحزم تتكدّس في
+   * الطريق فيزداد التأخير بدل أن ينقص، ثم تنقطع.
+   */
+  WEAK_LINK_RTT_MS: number;
+  /** وزمن استجابة أسوأ من هذا يستحق تخفيفًا أشد. */
+  POOR_LINK_RTT_MS: number;
+  /** أقصى ما يُسمح بتراكمه في مخزن إرسال لاعب قبل تخطّي لقطته. */
+  SEND_BUFFER_LIMIT: number;
 }
 
 export const MULTIPLAYER: MultiplayerConfig = {
@@ -202,6 +212,25 @@ export const MULTIPLAYER: MultiplayerConfig = {
   SNAPSHOT_HZ: 15,
   KEYFRAME_HZ: 0.5,
   TICK_HZ: 60,
+  WEAK_LINK_RTT_MS: 180,
+  POOR_LINK_RTT_MS: 350,
+  SEND_BUFFER_LIMIT: 48 * 1024,
+};
+
+/** تقدير جودة الوصلة من زمن الاستجابة المقاس. */
+export type LinkGrade = 'good' | 'fair' | 'weak';
+
+export function gradeLink(rttMs: number): LinkGrade {
+  if (rttMs <= 0) return 'good';
+  if (rttMs < MULTIPLAYER.WEAK_LINK_RTT_MS) return 'good';
+  if (rttMs < MULTIPLAYER.POOR_LINK_RTT_MS) return 'fair';
+  return 'weak';
+}
+
+export const LINK_GRADE_LABEL: Record<LinkGrade, string> = {
+  good: 'ممتاز',
+  fair: 'متوسط',
+  weak: 'ضعيف',
 };
 
 /** آلة حالات الجولة. الخادم هو المرجع، والواجهة تتفاعل فقط. */
@@ -271,9 +300,29 @@ export type NetFeedItem =
   | { k: 'out'; victim: string; victimActorId: number };
 
 /** أحداث الجولة الموثوقة القادمة من الخادم. */
+/** سبب خروج المشارك كما قرّره الخادم. */
+export type DeathCause = 'self' | 'trail' | 'collision' | 'wiped';
+
+export const DEATH_CAUSE_TEXT: Record<DeathCause, string> = {
+  self: 'ارتطمت بمسارك أنت',
+  trail: 'قُطِع مسارك',
+  collision: 'اصطدمت بخصم وأنت خارج أرضك',
+  wiped: 'فقدت كامل أرضك',
+};
+
 export type NetEvent =
   | { e: 'kill'; killerActorId: number; victimActorId: number; x: number; y: number }
-  | { e: 'death'; actorId: number; eliminated: boolean }
+  | {
+      e: 'death';
+      actorId: number;
+      eliminated: boolean;
+      cause: DeathCause;
+      /** من أخرجه، أو null إن لم يكن لأحد يد في ذلك. */
+      killerActorId: number | null;
+      /** نقطة الحدث بوحدة الخلية — مركز إعادة اللقطة. */
+      x: number;
+      y: number;
+    }
   | { e: 'respawn'; actorId: number }
   | { e: 'capture'; actorId: number; gained: number }
   /** مكافأة مؤكَّدة من الخادم — الواجهة لا تحسب العملات من عندها. */
