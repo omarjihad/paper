@@ -1,0 +1,31 @@
+# تحقّق آلي عند كل دفعة: لا تصل إلى الاستضافة نسخة لا تُبنى أو تكسر اختبارًا.
+name: بناء واختبار
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: تثبيت الاعتماديات
+        run: npm ci
+
+      - name: بناء الحزم والتطبيقين
+        run: npm run build
+
+      - name: اختبارات المحرك والشبكة
+        run: npm test
+
+      - name: فحص الأنواع
+        run: npm run typecheck

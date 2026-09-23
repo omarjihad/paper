@@ -76,14 +76,18 @@ function resolveRegion(value: string): RegionId {
 
 /**
  * العنوان العام للخدمة.
- * PUBLIC_URL يتقدّم دائمًا؛ وإلا نأخذ دومين Railway من بيئته — بلا افتراض أي دومين ثابت.
+ * PUBLIC_URL يتقدّم دائمًا؛ وإلا نأخذ العنوان الذي تضعه الاستضافة في بيئتها —
+ * بلا افتراض أي دومين ثابت. بدونه لا يُسجَّل webhook البوت فلا يرد على /start.
  */
 function resolvePublicUrl(): string {
   const explicit = clean(process.env.PUBLIC_URL);
   if (explicit) return normalizeUrl(explicit);
 
-  const railway = clean(process.env.RAILWAY_PUBLIC_DOMAIN);
-  if (railway) return normalizeUrl(railway);
+  for (const key of ['RAILWAY_PUBLIC_DOMAIN', 'RENDER_EXTERNAL_URL', 'FLY_APP_NAME']) {
+    const value = clean(process.env[key]);
+    if (!value) continue;
+    return normalizeUrl(key === 'FLY_APP_NAME' ? `${value}.fly.dev` : value);
+  }
 
   return '';
 }

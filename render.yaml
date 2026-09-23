@@ -1,0 +1,34 @@
+# مخطّط نشر بضغطة واحدة على Render.
+#
+# لماذا Render وليس GitHub Pages: هذه ليست صفحة ساكنة. الخادم يتحقّق من
+# هوية تيليجرام، ويحاكي الغرف ستين مرة في الثانية، ويفتح WebSocket لكل لاعب.
+# كل ذلك يحتاج عملية Node تعمل باستمرار، وGitHub Pages لا يشغّل عمليات.
+#
+# تنبيه على الخطة المجانية: الخدمة تنام بعد فترة خمول، فيستغرق أول فتح
+# بعدها نحو دقيقة، وتنتهي أي جولة كانت جارية. للّعب المستمر تلزم خطة مدفوعة.
+services:
+  - type: web
+    name: riqaa
+    runtime: node
+    plan: free
+    # أقرب مناطق Render إلى الشرق الأوسط.
+    region: frankfurt
+    # ‎--include=dev ضروري: المخطّط يضبط NODE_ENV=production، وعندها يتخطّى
+    # npm حزم التطوير — ومنها TypeScript وVite — فيفشل البناء بلا هذه الراية.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # مفتاح توقيع الجلسات: تولّده Render عشوائيًا ولا يظهر في المستودع.
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SERVER_REGION
+        value: eu
+      # يُضاف يدويًا من لوحة Render — لا يوضع في ملف داخل Git أبدًا.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # اتركه فارغًا ليعمل بذاكرة مؤقتة، أو ضع رابط MongoDB لحفظ الملفات.
+      - key: MONGODB_URI
+        sync: false
