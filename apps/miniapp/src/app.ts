@@ -1,6 +1,5 @@
 import {
   DEFAULT_REGION,
-  isRegionId,
   type AuthResponse,
   type RegionId,
   type RegionInfo,
@@ -22,12 +21,10 @@ import { clear, h } from './ui/dom.js';
 import { menuPage } from './ui/menu.js';
 import { bottomNav, type Tab } from './ui/nav.js';
 import { profilePage } from './ui/profile.js';
-import { matchmakingScreen, type MatchmakingHandle } from './ui/matchmaking.js';
+import { serverListScreen, type ServerListHandle } from './ui/serverList.js';
 import { resultScreen, type ResultView } from './ui/result.js';
 import { errorState, loadingState, matchLoadingState } from './ui/states.js';
 
-/** المنطقة المختارة تُحفظ بين الجلسات. */
-const REGION_KEY = 'riqaa.region';
 /** مدة إظهار سبب التحويل إلى الجولة المحلية. */
 const FALLBACK_NOTICE_MS = 1500;
 
@@ -41,9 +38,7 @@ export class App {
   private session: AuthResponse | null = null;
   private game: GameScreen | null = null;
   private tab: Tab = 'home';
-  private region: RegionId = readRegion() ?? DEFAULT_REGION;
-  /** هل اختار اللاعب منطقته بنفسه؟ بلا اختيار صريح نتبع المنطقة المستضافة فعلًا. */
-  private regionChosen = readRegion() !== null;
+  private region: RegionId = DEFAULT_REGION;
   private regions: readonly RegionInfo[] = [];
   /** يفك ارتباط مستمعي شاشة المطابقة عند مغادرتها. */
   private lobbyUnbind: (() => void)[] = [];
@@ -130,9 +125,9 @@ export class App {
   // -------------------------------------------------------------- الجولة
 
   /**
-   * مسار اللعب: اتصال → طابور → غرفة → عد تنازلي → جولة.
-   * إن تعذّر الوصول إلى خادم اللعب الجماعي تُلعب جولة محلية ضد بوتات،
-   * ويُعلَن ذلك للاعب صراحةً — لا نعرض بوتات محلية على أنها خصوم حقيقيون.
+   * مسار اللعب: اتصال → اختيار سيرفر → ضغط «ابدأ» → عد تنازلي → جولة.
+   * لا انطلاق تلقائي: اللاعب يرى أين يجلس الآخرون ويقرّر بنفسه متى يبدأ.
+   * وإن تعذّر الوصول إلى الخادم تُلعب جولة محلية ضد بوتات، ويُعلَن ذلك صراحةً.
    */
   private async play(): Promise<void> {
     // أول سطر في معالج الضغط: سياق لمسة المستخدم ما زال قائمًا هنا،
@@ -141,45 +136,35 @@ export class App {
     setBackButton(null);
     setClosingConfirmation(true);
 
-    const lobby: MatchmakingHandle = matchmakingScreen({
-      onCancel: () => this.cancelMatchmaking(),
-      onRegion: (region) => this.chooseRegion(region, lobby),
+    const lobby: ServerListHandle = serverListScreen({
+      onPick: (id) => this.net.join(id),
+      onStart: () => this.net.start(),
+      onCancel: () => this.leaveLobby(),
     });
-    lobby.setRegions(this.regions, this.region);
+    lobby.setServers([], null);
     this.show(lobby.element);
 
     try {
       await this.connectRealtime(lobby);
     } catch (error) {
       // يُعرض السبب لحظةً قبل التحويل، فلا ينتقل اللاعب إلى وضع آخر بلا تفسير.
-      lobby.setStatus('تعذّر الاتصال بخادم اللعب الجماعي');
-      lobby.setQueue(0, 0);
-      lobby.setCountdown(0);
+      lobby.setNotice('تعذّر الاتصال بخادم اللعب الجماعي');
       await delay(FALLBACK_NOTICE_MS);
       await this.playLocal(error);
       return;
     }
 
     this.bindLobby(lobby);
-    this.net.queue(this.region);
-  }
-
-  private chooseRegion(region: RegionId, lobby: MatchmakingHandle): void {
-    if (region === this.region) return;
-    this.region = region;
-    this.regionChosen = true;
-    writeRegion(region);
-    lobby.setRegions(this.regions, region);
-    if (this.net.open) this.net.queue(region);
+    this.net.watchLobby();
   }
 
   /** يفتح الوصلة ويصادق عليها برمز الجلسة، مع محاولة تجديد واحدة. */
-  private async connectRealtime(lobby: MatchmakingHandle): Promise<void> {
+  private async connectRealtime(lobby: ServerListHandle): Promise<void> {
     if (this.net.open) {
       lobby.setPing(this.net.pingMs);
       return;
     }
-    lobby.setStatus('جارٍ الاتصال بالخادم…');
+    lobby.setNotice('جارٍ الاتصال بالخادم…');
 
     let token = this.api.getToken();
     if (!token) {
@@ -197,34 +182,34 @@ export class App {
     }
 
     this.regions = welcome.regions;
-    // بلا اختيار صريح من اللاعب، الأفضل هو المنطقة التي يعمل منها الخادم فعلًا.
-    if (!this.regionChosen || !this.regions.some((region) => region.id === this.region)) {
-      this.region = welcome.serverRegion;
-    }
-    lobby.setRegions(this.regions, this.region);
-    lobby.setStatus('جاري البحث عن لاعبين…');
+    this.region = welcome.serverRegion;
+    lobby.setRegion(this.region, this.regions);
+    lobby.setPing(this.net.pingMs);
   }
 
-  private bindLobby(lobby: MatchmakingHandle): void {
+  private bindLobby(lobby: ServerListHandle): void {
     this.releaseLobby();
     const pingTimer = window.setInterval(() => lobby.setPing(this.net.pingMs), 700);
 
     this.lobbyUnbind.push(
       () => window.clearInterval(pingTimer),
-      this.net.on('queued', (message) => {
-        lobby.setStatus('جاري البحث عن لاعبين…');
-        lobby.setQueue(message.waiting, message.needed);
-      }),
-      this.net.watchLink((state) => {
-        if (state === 'reconnecting') lobby.setStatus('انقطع الاتصال — جارٍ العودة…');
+      this.net.on('lobby', (message) => {
+        this.region = message.serverRegion;
+        lobby.setRegion(this.region, this.regions);
+        lobby.setServers(message.servers, message.yourServerId);
       }),
       this.net.on('room', (message) => this.enterRoom(message.room)),
-      this.net.on('state', (message) => {
-        if (message.state === 'COUNTDOWN') lobby.setCountdown(message.startsInMs);
+      this.net.watchLink((state) => {
+        if (state === 'reconnecting') lobby.setNotice('انقطع الاتصال — جارٍ العودة…');
+        if (state === 'live') this.net.watchLobby();
       }),
       this.net.on('error', (message) => {
+        // رفضُ انضمامٍ ليس سببًا لترك الشاشة: يُعرض السبب ويبقى الاختيار قائمًا.
+        if (message.code === 'join_failed' || message.code === 'start_failed') {
+          lobby.setNotice(message.message);
+          return;
+        }
         this.releaseLobby();
-        // ليست كل الأخطاء سببًا للعب محليًا: بعضها قرارٌ يخص اللاعب نفسه.
         if (message.code === 'duplicate_session' || message.code === 'protocol_mismatch') {
           this.net.shutdown();
           setClosingConfirmation(false);
@@ -237,22 +222,22 @@ export class App {
           );
           return;
         }
-        lobby.setStatus(message.message);
+        lobby.setNotice(message.message);
         void this.playLocal(new Error(message.message));
       }),
     );
   }
 
+  private leaveLobby(): void {
+    this.releaseLobby();
+    if (this.net.open) this.net.leave();
+    setClosingConfirmation(false);
+    this.showTab('home');
+  }
+
   private releaseLobby(): void {
     for (const off of this.lobbyUnbind) off();
     this.lobbyUnbind = [];
-  }
-
-  private cancelMatchmaking(): void {
-    this.releaseLobby();
-    if (this.net.open) this.net.cancel();
-    setClosingConfirmation(false);
-    this.showTab('home');
   }
 
   /** الغرفة جاهزة: تُبنى شاشة اللعب من وصف الخادم وحده. */
@@ -380,24 +365,8 @@ function describe(error: unknown): string {
 }
 
 /** null = لم يختر اللاعب منطقة بعد. */
-function readRegion(): RegionId | null {
-  try {
-    const stored = window.localStorage.getItem(REGION_KEY);
-    return isRegionId(stored) ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
 function delay(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function writeRegion(region: RegionId): void {
-  try {
-    window.localStorage.setItem(REGION_KEY, region);
-  } catch {
-    /* التخزين قد يكون معطّلًا داخل بعض العملاء — تجاهل. */
-  }
-}

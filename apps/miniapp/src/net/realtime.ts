@@ -187,13 +187,18 @@ export class RealtimeClient {
     });
   }
 
-  queue(region: RegionId): void {
-    this.region = region;
-    this.send({ t: 'queue', region });
+  /** الاشتراك في قائمة السيرفرات وتحديثاتها. */
+  watchLobby(): void {
+    this.send({ t: 'lobby' });
   }
 
-  cancel(): void {
-    this.send({ t: 'cancel' });
+  join(id: string): void {
+    this.send({ t: 'join', id });
+  }
+
+  /** بدء الجولة بضغطة اللاعب — لا انطلاق تلقائي. */
+  start(): void {
+    this.send({ t: 'start' });
   }
 
   leave(): void {

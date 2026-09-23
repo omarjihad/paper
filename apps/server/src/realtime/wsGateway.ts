@@ -5,7 +5,6 @@ import {
   MULTIPLAYER,
   NET_PROTOCOL_VERSION,
   REALTIME_PATH,
-  isRegionId,
   type ClientMessage,
   type RegionId,
   type ServerMessage,
@@ -156,16 +155,17 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
     }
 
     switch (message.t) {
-      case 'queue': {
-        const region: RegionId = isRegionId(message.region) ? message.region : deps.serverRegion;
-        const resumed = deps.rooms.resume(session.playerId, session.link);
-        if (resumed) return;
+      case 'lobby':
+        deps.rooms.watch(session.playerId, session.link);
+        return;
+
+      case 'join': {
         const profile = await deps.players.findById(session.playerId);
         if (!profile) {
           session.link.close('player_not_found', 'لم يتم العثور على اللاعب');
           return;
         }
-        const status = deps.rooms.enqueue(
+        const result = deps.rooms.join(
           {
             playerId: session.playerId,
             // الاسم والصورة من قاعدة البيانات لا من رسالة العميل.
@@ -173,20 +173,18 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
             avatarUrl: profile.avatarUrl,
             link: session.link,
           },
-          region,
+          String(message.id ?? ''),
         );
-        session.link.send({
-          t: 'queued',
-          region,
-          waiting: status.waiting,
-          needed: status.needed,
-          timeoutMs: MULTIPLAYER.MATCHMAKING_TIMEOUT,
-        });
+        if (!result.ok) session.link.send({ t: 'error', code: 'join_failed', message: result.reason });
         return;
       }
-      case 'cancel':
-        deps.rooms.dequeue(session.playerId);
+
+      case 'start': {
+        const started = deps.rooms.begin(session.playerId);
+        if (!started.ok) session.link.send({ t: 'error', code: 'start_failed', message: started.reason });
         return;
+      }
+
       case 'input':
         deps.rooms.input(session.playerId, Number(message.h), Number(message.r));
         return;

@@ -79,13 +79,14 @@ const LINGER_MS = 15000;
  */
 export class Room {
   readonly id = randomUUID();
-  readonly seed = (Math.random() * 0xffffffff) >>> 0;
   readonly config = DEFAULT_MATCH_CONFIG;
   readonly createdAt = Date.now();
 
+  seed = (Math.random() * 0xffffffff) >>> 0;
   state: MatchState = 'WAITING';
   private stateSince = Date.now();
-  private world: World;
+  /** لا عالم قبل الانطلاق: المقاعد قد تتبدّل ما دام السيرفر في الانتظار. */
+  private world: World | null = null;
   private readonly participants: MatchParticipant[] = [];
   private readonly players = new Map<string, RoomPlayer>();
   private readonly byActor = new Map<number, RoomPlayer>();
@@ -98,33 +99,89 @@ export class Room {
   private readonly eventBuffer: GameEvent[] = [];
 
   constructor(
+    /** ترتيبه في القائمة — منه يُشتق اسمه المعروض. */
+    readonly index: number,
     readonly region: RegionId,
-    seats: readonly RoomSeat[],
     private readonly hooks: RoomHooks,
-  ) {
+  ) {}
+
+  get name(): string {
+    return `سيرفر ${this.index + 1}`;
+  }
+
+  /**
+   * منذ متى اكتمل فيه الحد الأدنى من اللاعبين، أو 0 إن لم يكتمل.
+   * المرجع ليس لحظة إنشاء السيرفر: هو يُنشأ مع إقلاع الخادم، فلو قِسنا منه
+   * لانطلق كل سيرفر يبلغ لاعبَين فورًا بلا ضغطة أحد.
+   */
+  quorumSince = 0;
+
+  /** قابل للانضمام ما دام في الانتظار ولم يمتلئ بالبشر. */
+  get joinable(): boolean {
+    return this.state === 'WAITING' && this.players.size < MULTIPLAYER.MAX_PLAYERS_PER_ROOM;
+  }
+
+  /** مقعد جديد قبل الانطلاق. يعيد false إن لم يعد السيرفر يقبل. */
+  seat(seat: RoomSeat): boolean {
+    if (this.players.has(seat.playerId)) {
+      this.players.get(seat.playerId)!.link = seat.link;
+      return true;
+    }
+    if (!this.joinable) return false;
+
+    this.players.set(seat.playerId, {
+      playerId: seat.playerId,
+      actorId: 0,
+      name: seat.name,
+      avatarUrl: seat.avatarUrl,
+      link: seat.link,
+      disconnectedAt: 0,
+      coins: 0,
+      kills: 0,
+      eliminated: false,
+      reported: false,
+      snapshotSkip: 0,
+    });
+    this.refreshQuorum();
+    return true;
+  }
+
+  /** مغادرة قبل الانطلاق لا تترك أثرًا. */
+  unseat(playerId: string): void {
+    if (this.state !== 'WAITING') return;
+    this.players.delete(playerId);
+    this.refreshQuorum();
+  }
+
+  /** يبدأ العدّ من لحظة اكتمال النصاب، ويتوقف إن نقص. */
+  private refreshQuorum(): void {
+    const enough = this.players.size >= MULTIPLAYER.MIN_PLAYERS_TO_START;
+    if (enough && this.quorumSince === 0) this.quorumSince = Date.now();
+    else if (!enough) this.quorumSince = 0;
+  }
+
+  /**
+   * انطلاق الجولة بضغطة لاعب.
+   * هنا فقط تُوزَّع أرقام المشاركين ويُبنى العالم، فمن انضم متأخرًا قبل
+   * الضغط يدخل الجولة مثل من سبقه تمامًا.
+   */
+  begin(): boolean {
+    if (this.state !== 'WAITING' || this.players.size === 0) return false;
+
+    this.seed = (Math.random() * 0xffffffff) >>> 0;
+    this.participants.length = 0;
+    this.byActor.clear();
+
     let actorId = 1;
-    for (const seat of seats) {
+    for (const player of this.players.values()) {
+      player.actorId = actorId;
       this.participants.push({
         kind: 'human',
         actorId,
-        name: seat.name,
+        name: player.name,
         colorIndex: (actorId - 1) % ACTOR_COLORS.length,
-        avatarUrl: seat.avatarUrl,
+        avatarUrl: player.avatarUrl,
       });
-      const player: RoomPlayer = {
-        playerId: seat.playerId,
-        actorId,
-        name: seat.name,
-        avatarUrl: seat.avatarUrl,
-        link: seat.link,
-        disconnectedAt: 0,
-        coins: 0,
-        kills: 0,
-        eliminated: false,
-        reported: false,
-        snapshotSkip: 0,
-      };
-      this.players.set(seat.playerId, player);
       this.byActor.set(actorId, player);
       actorId++;
     }
@@ -147,13 +204,42 @@ export class Room {
       endOnHumanDeath: false,
     });
 
+    this.tickAccumulator = 0;
+    this.snapshotClock = 0;
+    this.keyframeClock = 0;
+    this.tickCount = 0;
+    this.closedAt = 0;
+
+    this.quorumSince = 0;
     this.setState('COUNTDOWN');
+    for (const player of this.players.values()) {
+      const descriptor = this.descriptorFor(player.playerId);
+      if (descriptor) player.link?.send({ t: 'room', room: descriptor });
+    }
+    return true;
+  }
+
+  /** يعيد السيرفر إلى الانتظار بعد انتهاء جولته كي يُستعمل من جديد. */
+  recycle(): void {
+    this.players.clear();
+    this.byActor.clear();
+    this.participants.length = 0;
+    this.world = null;
+    this.closedAt = 0;
+    this.state = 'WAITING';
+    this.stateSince = Date.now();
+    this.quorumSince = 0;
   }
 
   // ------------------------------------------------------------ الاستعلام
 
   get humanCount(): number {
     return this.players.size;
+  }
+
+  /** العالم بعد الانطلاق فقط — قبله لا وجود له. */
+  private get live(): World | null {
+    return this.world;
   }
 
   get playerIds(): string[] {
@@ -174,7 +260,7 @@ export class Room {
 
   descriptorFor(playerId: string): RoomDescriptor | null {
     const player = this.players.get(playerId);
-    if (!player) return null;
+    if (!player || !this.world) return null;
     return {
       roomId: this.id,
       region: this.region,
@@ -200,13 +286,13 @@ export class Room {
     const player = this.players.get(playerId);
     if (!player || player.eliminated || this.state !== 'PLAYING') return;
     if (!Number.isFinite(heading) || !Number.isFinite(throttle)) return;
-    const controller = this.world.humans.get(player.actorId);
+    const controller = this.world?.humans.get(player.actorId);
     controller?.setIntent(heading, clamp01(throttle));
   }
 
   attach(playerId: string, link: ClientLink): RoomDescriptor | null {
     const player = this.players.get(playerId);
-    if (!player) return null;
+    if (!player || !this.world) return null;
     player.link = link;
     player.disconnectedAt = 0;
     const descriptor = this.descriptorFor(playerId);
@@ -253,6 +339,7 @@ export class Room {
   }
 
   private simulate(deltaMs: number): void {
+    if (!this.world) return;
     const engine = this.world.engine;
     const tick = this.config.tickSeconds;
     this.tickAccumulator += Math.min(deltaMs, 250) / 1000;
@@ -285,6 +372,7 @@ export class Room {
 
   /** الجولة تنتهي حين لا يبقى بشر فاعلون، أو حين يبقى مشارك واحد فقط. */
   private roundOver(): boolean {
+    if (!this.world) return false;
     let activeHumans = 0;
     for (const player of this.players.values()) {
       if (!player.eliminated) activeHumans++;
@@ -308,6 +396,7 @@ export class Room {
    * يؤكّد المحرك الموثوق وقوع الإخراج.
    */
   private dispatchEvents(): void {
+    if (!this.world) return;
     const engine = this.world.engine;
     if (engine.events.length === 0) return;
 
@@ -381,7 +470,7 @@ export class Room {
   }
 
   private nameOf(actorId: number): string {
-    return this.world.engine.actorById(actorId)?.name ?? 'مشارك';
+    return this.world?.engine.actorById(actorId)?.name ?? 'مشارك';
   }
 
   /** انتهاء مهلة العودة يعني إخراج اللاعب من الغرفة فعليًا. */
@@ -402,6 +491,11 @@ export class Room {
    */
   private eliminate(player: RoomPlayer): void {
     if (player.eliminated) return;
+    if (!this.world) {
+      // لم تبدأ الجولة بعد: مجرّد مغادرة مقعد.
+      this.players.delete(player.playerId);
+      return;
+    }
     const actor = this.world.engine.actorById(player.actorId);
     if (actor?.alive) this.world.engine.applyDeath(player.actorId, 'trail');
     else player.eliminated = true;
@@ -441,6 +535,7 @@ export class Room {
    * يأخذ حصة أقل — وهي حصة تكفي تمامًا لأن الجهاز يستوفي ما بينها.
    */
   private broadcastSnapshot(): void {
+    if (!this.world) return;
     const engine = this.world.engine;
     const actors = engine.actors.map((actor) => packActor(actor, engine.areaPercent(actor)));
     const lb = this.leaderboard();
@@ -480,6 +575,7 @@ export class Room {
 
   /** الإطار المفتاحي يُرمَّز مرة واحدة للغرفة، لا مرة لكل لاعب فيها. */
   private keyframeText(): string {
+    if (!this.world) return '{}';
     const engine = this.world.engine;
     const frame = encodeKeyframe(engine);
     return JSON.stringify({
@@ -493,6 +589,7 @@ export class Room {
 
   /** لوحة الصدارة يبنيها الخادم بالكامل: الترتيب والمساحة وحالة الخروج. */
   private leaderboard(): NetLeaderEntry[] {
+    if (!this.world) return [];
     const engine = this.world.engine;
     return engine.ranking().map((actor) => {
       const player = this.byActor.get(actor.id);
@@ -511,6 +608,7 @@ export class Room {
   /** حصاد النتائج: يُحفظ في قاعدة البيانات ثم يُرسل لكل لاعب نتيجته. */
   private async settle(): Promise<void> {
     this.closedAt = Date.now();
+    if (!this.world) return;
     const engine = this.world.engine;
     const lb = this.leaderboard();
 

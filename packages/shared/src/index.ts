@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V13';
+export const APP_VERSION = 'V14';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -198,6 +198,8 @@ export interface MultiplayerConfig {
   POOR_LINK_RTT_MS: number;
   /** أقصى ما يُسمح بتراكمه في مخزن إرسال لاعب قبل تخطّي لقطته. */
   SEND_BUFFER_LIMIT: number;
+  /** عدد السيرفرات المعروضة للاعب. ثابتة كي يجدها الأصدقاء في المكان نفسه. */
+  LOBBY_COUNT: number;
 }
 
 export const MULTIPLAYER: MultiplayerConfig = {
@@ -205,7 +207,8 @@ export const MULTIPLAYER: MultiplayerConfig = {
   MIN_PLAYERS_TO_START: 2,
   // ست ثوانٍ بحثًا عمّن قد لا يأتي تجعل اللعبة تبدو معطّلة قبل أن تبدأ.
   // ثانية ونصف تكفي لالتقاط لاعب ضغط «العب» في اللحظة نفسها تقريبًا.
-  MATCHMAKING_TIMEOUT: 1500,
+  // مجموعة حاضرة لا تنتظر إلى الأبد ضغطةَ واحدٍ منهم.
+  MATCHMAKING_TIMEOUT: 20000,
   BOT_FILL_ENABLED: true,
   COUNTDOWN_MS: 1000,
   RECONNECT_GRACE_MS: 30000,
@@ -215,6 +218,7 @@ export const MULTIPLAYER: MultiplayerConfig = {
   WEAK_LINK_RTT_MS: 180,
   POOR_LINK_RTT_MS: 350,
   SEND_BUFFER_LIMIT: 48 * 1024,
+  LOBBY_COUNT: 6,
 };
 
 /** تقدير جودة الوصلة من زمن الاستجابة المقاس. */
@@ -236,7 +240,7 @@ export const LINK_GRADE_LABEL: Record<LinkGrade, string> = {
 /** آلة حالات الجولة. الخادم هو المرجع، والواجهة تتفاعل فقط. */
 export type MatchState = 'WAITING' | 'MATCHMAKING' | 'COUNTDOWN' | 'PLAYING' | 'FINISHED';
 
-export type RegionId = 'eu' | 'us' | 'asia';
+export type RegionId = 'eu' | 'us' | 'asia' | 'me';
 
 export interface RegionInfo {
   id: RegionId;
@@ -254,12 +258,13 @@ export const REGIONS: readonly RegionInfo[] = [
   { id: 'eu', name: 'أوروبا', hosted: false },
   { id: 'us', name: 'أمريكا', hosted: false },
   { id: 'asia', name: 'آسيا', hosted: false },
+  { id: 'me', name: 'الشرق الأوسط', hosted: false },
 ];
 
 export const DEFAULT_REGION: RegionId = 'eu';
 
 export function isRegionId(value: unknown): value is RegionId {
-  return value === 'eu' || value === 'us' || value === 'asia';
+  return value === 'eu' || value === 'us' || value === 'asia' || value === 'me';
 }
 
 // --------------------------------------------------------------- البروتوكول
@@ -359,18 +364,43 @@ export interface NetRoundResult {
   rounds: number;
 }
 
+/**
+ * سيرفر معروض في قائمة الاختيار.
+ * `players` بشرٌ فقط — البوتات تملأ المقاعد الشاغرة عند الانطلاق ولا تُحسب
+ * هنا، وإلا بدت كل السيرفرات ممتلئة وهي فارغة.
+ */
+export interface LobbyServer {
+  id: string;
+  name: string;
+  region: RegionId;
+  players: number;
+  capacity: number;
+  state: MatchState;
+  /** هل يمكن الانضمام إليه الآن؟ (جولة جارية = لا) */
+  joinable: boolean;
+}
+
 /** رسائل العميل إلى الخادم: نيّة وإدخال فقط — لا نتائج ولا هوية. */
 export type ClientMessage =
   | { t: 'hello'; v: number; token: string }
-  | { t: 'queue'; region: RegionId }
-  | { t: 'cancel' }
+  /** اشتراك في قائمة السيرفرات وتحديثاتها. */
+  | { t: 'lobby' }
+  | { t: 'join'; id: string }
+  /** بدء الجولة في السيرفر الذي انضم إليه — بضغطة اللاعب لا تلقائيًا. */
+  | { t: 'start' }
   | { t: 'input'; h: number; r: number }
   | { t: 'ping'; n: number }
   | { t: 'leave' };
 
 export type ServerMessage =
   | { t: 'welcome'; v: number; version: string; regions: RegionInfo[]; serverRegion: RegionId; name: string }
-  | { t: 'queued'; region: RegionId; waiting: number; needed: number; timeoutMs: number }
+  | {
+      t: 'lobby';
+      servers: LobbyServer[];
+      /** السيرفر الذي يجلس فيه هذا اللاعب الآن، أو null. */
+      yourServerId: string | null;
+      serverRegion: RegionId;
+    }
   | { t: 'room'; room: RoomDescriptor }
   | { t: 'state'; state: MatchState; startsInMs: number }
   | { t: 'snap'; tick: number; elapsed: number; actors: NetActor[]; lb: NetLeaderEntry[] }

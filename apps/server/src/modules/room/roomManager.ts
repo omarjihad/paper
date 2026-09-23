@@ -1,5 +1,6 @@
 import {
   MULTIPLAYER,
+  type LobbyServer,
   type MatchState,
   type RegionId,
   type RoomDescriptor,
@@ -7,44 +8,58 @@ import {
 import type { PlayerRepository } from '../players/player.repository.js';
 import { Room, type ClientLink, type RoomSeat } from './room.js';
 
-interface QueueEntry extends RoomSeat {
-  since: number;
-}
-
-export interface JoinResult {
-  descriptor: RoomDescriptor;
-  reconnected: boolean;
-}
-
 export interface ManagerLog {
   (message: string): void;
 }
 
 /**
- * مدير الغرف والمطابقة.
+ * مدير السيرفرات.
  *
- * طابور لكل منطقة، وغرف مستقلة تعمل في اللحظة نفسها.
- * كل الأرقام (سعة الغرفة، الحد الأدنى للبدء، مهلة البحث، ملء البوتات)
- * تُقرأ من MULTIPLAYER في الحزمة المشتركة — لا رقم مبعثر في الكود.
+ * عدد ثابت من السيرفرات المعلنة، لا طابور خفيّ: اللاعب يرى أين يجلس
+ * الآخرون فيجلس معهم. المطابقة التلقائية كانت تفتح لكلٍّ غرفةً على حدة
+ * فلا يلتقي اثنان إلا بمصادفة نادرة.
+ *
+ * كل الأرقام من MULTIPLAYER في الحزمة المشتركة — لا رقم مبعثر في الكود.
  */
 export class RoomManager {
-  private readonly rooms = new Map<string, Room>();
-  /** الغرفة الحالية لكل لاعب — أساس إعادة الاتصال. */
+  private readonly rooms: Room[] = [];
+  /** السيرفر الذي يجلس فيه كل لاعب — أساس إعادة الاتصال. */
   private readonly playerRoom = new Map<string, string>();
-  private readonly queues = new Map<RegionId, QueueEntry[]>();
+  /** من يتابع قائمة السيرفرات الآن. */
+  private readonly watchers = new Map<string, ClientLink>();
   private timer: NodeJS.Timeout | null = null;
   private lastTick = Date.now();
 
   constructor(
     private readonly players: PlayerRepository,
     private readonly log: ManagerLog,
-  ) {}
+    private readonly region: RegionId = 'eu',
+  ) {
+    for (let i = 0; i < MULTIPLAYER.LOBBY_COUNT; i++) {
+      this.rooms.push(new Room(i, region, this.hooks()));
+    }
+  }
+
+  private hooks() {
+    return {
+      onPlayerResult: (playerId: string, areaPercent: number) =>
+        this.players.recordRoundResult(playerId, areaPercent).then((profile) => ({
+          bestAreaPercent: profile.stats.bestAreaPercent,
+          rounds: profile.stats.rounds,
+        })),
+      onClosed: (closed: Room) => {
+        for (const playerId of closed.playerIds) {
+          if (this.playerRoom.get(playerId) === closed.id) this.playerRoom.delete(playerId);
+        }
+      },
+      log: this.log,
+    };
+  }
 
   start(): void {
     if (this.timer) return;
     this.lastTick = Date.now();
     this.timer = setInterval(() => this.pump(), Math.round(1000 / MULTIPLAYER.TICK_HZ));
-    // المؤقّت وحده لا يمنع الخادم من الإغلاق عند الإيقاف.
     this.timer.unref?.();
   }
 
@@ -53,50 +68,88 @@ export class RoomManager {
     this.timer = null;
   }
 
-  get stats(): { rooms: number; players: number; queued: number } {
-    let queued = 0;
-    for (const queue of this.queues.values()) queued += queue.length;
+  get stats(): { rooms: number; players: number; playing: number } {
     let players = 0;
-    for (const room of this.rooms.values()) players += room.humanCount;
-    return { rooms: this.rooms.size, players, queued };
+    let playing = 0;
+    for (const room of this.rooms) {
+      players += room.humanCount;
+      if (room.state === 'PLAYING' || room.state === 'COUNTDOWN') playing++;
+    }
+    return { rooms: this.rooms.length, players, playing };
   }
 
-  // -------------------------------------------------------------- المطابقة
+  // ------------------------------------------------------------- القائمة
 
-  /** يعيد وصف الغرفة إذا كان اللاعب داخل غرفة قائمة (إعادة اتصال). */
+  /** لقطة القائمة كما تُعرض: البشر فقط، بلا البوتات التي تملأ الشاغر لاحقًا. */
+  listServers(): LobbyServer[] {
+    return this.rooms.map((room) => ({
+      id: room.id,
+      name: room.name,
+      region: room.region,
+      players: room.humanCount,
+      capacity: MULTIPLAYER.MAX_PLAYERS_PER_ROOM,
+      state: room.state,
+      joinable: room.joinable,
+    }));
+  }
+
+  watch(playerId: string, link: ClientLink): void {
+    this.watchers.set(playerId, link);
+    this.sendLobby(playerId, link);
+  }
+
+  unwatch(playerId: string): void {
+    this.watchers.delete(playerId);
+  }
+
+  private sendLobby(playerId: string, link: ClientLink): void {
+    link.send({
+      t: 'lobby',
+      servers: this.listServers(),
+      yourServerId: this.playerRoom.get(playerId) ?? null,
+      serverRegion: this.region,
+    });
+  }
+
+  /** أي تغيّر في المقاعد أو الحالة يصل إلى كل من يتفرّج على القائمة. */
+  private broadcastLobby(): void {
+    for (const [playerId, link] of this.watchers) this.sendLobby(playerId, link);
+  }
+
+  // ------------------------------------------------------------ الانضمام
+
+  /** يعيد وصف الغرفة إذا كان اللاعب داخل جولة قائمة (إعادة اتصال). */
   resume(playerId: string, link: ClientLink): RoomDescriptor | null {
-    const roomId = this.playerRoom.get(playerId);
-    if (!roomId) return null;
-    const room = this.rooms.get(roomId);
-    if (!room || room.finished) {
-      this.playerRoom.delete(playerId);
-      return null;
-    }
+    const room = this.roomOf(playerId);
+    if (!room || room.finished || room.state === 'WAITING') return null;
     const descriptor = room.attach(playerId, link);
-    if (descriptor) this.log(`عاد ${playerId.slice(0, 8)} إلى الغرفة ${roomId.slice(0, 8)}`);
+    if (descriptor) this.log(`عاد ${playerId.slice(0, 8)} إلى ${room.name}`);
     return descriptor;
   }
 
-  enqueue(seat: RoomSeat, region: RegionId): { waiting: number; needed: number } {
-    this.dequeue(seat.playerId);
-    const queue = this.queueFor(region);
-    queue.push({ ...seat, since: Date.now() });
-    this.matchRegion(region);
-    return {
-      waiting: queue.length,
-      needed: Math.max(0, MULTIPLAYER.MIN_PLAYERS_TO_START - queue.length),
-    };
+  /** يجلس اللاعب في سيرفر مختار. يعيد سبب الرفض إن تعذّر. */
+  join(seat: RoomSeat, roomId: string): { ok: true } | { ok: false; reason: string } {
+    const room = this.rooms.find((candidate) => candidate.id === roomId);
+    if (!room) return { ok: false, reason: 'هذا السيرفر غير موجود' };
+    if (room.state !== 'WAITING') return { ok: false, reason: 'الجولة بدأت في هذا السيرفر، اختر غيره' };
+    if (!room.joinable) return { ok: false, reason: 'السيرفر ممتلئ' };
+
+    this.leaveSeat(seat.playerId);
+    if (!room.seat(seat)) return { ok: false, reason: 'السيرفر ممتلئ' };
+    this.playerRoom.set(seat.playerId, room.id);
+    this.broadcastLobby();
+    return { ok: true };
   }
 
-  dequeue(playerId: string): void {
-    for (const [region, queue] of this.queues) {
-      const index = queue.findIndex((entry) => entry.playerId === playerId);
-      if (index >= 0) {
-        queue.splice(index, 1);
-        if (queue.length === 0) this.queues.delete(region);
-        return;
-      }
-    }
+  /** يبدأ الجولة في سيرفر اللاعب — بضغطته هو. */
+  begin(playerId: string): { ok: true } | { ok: false; reason: string } {
+    const room = this.roomOf(playerId);
+    if (!room) return { ok: false, reason: 'اختر سيرفرًا أولًا' };
+    if (room.state !== 'WAITING') return { ok: false, reason: 'الجولة بدأت بالفعل' };
+    if (!room.begin()) return { ok: false, reason: 'تعذّر بدء الجولة' };
+    this.log(`${room.name} انطلق بـ${room.humanCount} لاعبًا بشريًا`);
+    this.broadcastLobby();
+    return { ok: true };
   }
 
   input(playerId: string, heading: number, throttle: number): void {
@@ -104,111 +157,75 @@ export class RoomManager {
   }
 
   leave(playerId: string): void {
-    this.dequeue(playerId);
     const room = this.roomOf(playerId);
-    room?.leave(playerId);
+    if (room && room.state !== 'WAITING') room.leave(playerId);
+    else this.leaveSeat(playerId);
     this.playerRoom.delete(playerId);
+    this.broadcastLobby();
   }
 
-  /** انقطاع مؤقّت: تبدأ مهلة العودة ولا يُحذف اللاعب من الغرفة. */
+  /** انقطاع مؤقّت: تبدأ مهلة العودة، وفي الانتظار يُخلى المقعد فورًا. */
   disconnect(playerId: string): void {
-    this.dequeue(playerId);
-    this.roomOf(playerId)?.detach(playerId);
+    this.unwatch(playerId);
+    const room = this.roomOf(playerId);
+    if (!room) return;
+    if (room.state === 'WAITING') {
+      this.leaveSeat(playerId);
+      this.playerRoom.delete(playerId);
+    } else {
+      room.detach(playerId);
+    }
+    this.broadcastLobby();
   }
 
   stateOf(playerId: string): MatchState | null {
     return this.roomOf(playerId)?.state ?? null;
   }
 
+  private leaveSeat(playerId: string): void {
+    const previous = this.roomOf(playerId);
+    previous?.unseat(playerId);
+  }
+
   private roomOf(playerId: string): Room | undefined {
     const roomId = this.playerRoom.get(playerId);
-    return roomId ? this.rooms.get(roomId) : undefined;
-  }
-
-  private queueFor(region: RegionId): QueueEntry[] {
-    let queue = this.queues.get(region);
-    if (!queue) {
-      queue = [];
-      this.queues.set(region, queue);
-    }
-    return queue;
-  }
-
-  /**
-   * تُفتح الغرفة في حالتين:
-   * امتلاء المقاعد البشرية، أو اكتمال الحد الأدنى؛ وإن طال الانتظار
-   * فوق MATCHMAKING_TIMEOUT تُفتح بمن حضر وتُملأ الباقي ببوتات معلنة.
-   */
-  private matchRegion(region: RegionId): void {
-    const queue = this.queues.get(region);
-    if (!queue || queue.length === 0) return;
-
-    const capacity = MULTIPLAYER.MAX_PLAYERS_PER_ROOM;
-    const oldest = queue[0];
-    const waited = Date.now() - oldest.since;
-    const ready =
-      queue.length >= capacity ||
-      queue.length >= MULTIPLAYER.MIN_PLAYERS_TO_START ||
-      (waited >= MULTIPLAYER.MATCHMAKING_TIMEOUT && MULTIPLAYER.BOT_FILL_ENABLED);
-
-    if (!ready) return;
-
-    const seats = queue.splice(0, capacity).map<RoomSeat>((entry) => ({
-      playerId: entry.playerId,
-      name: entry.name,
-      avatarUrl: entry.avatarUrl,
-      link: entry.link,
-    }));
-    if (queue.length === 0) this.queues.delete(region);
-    this.openRoom(region, seats);
-  }
-
-  private openRoom(region: RegionId, seats: readonly RoomSeat[]): Room {
-    const room = new Room(region, seats, {
-      onPlayerResult: (playerId, areaPercent) =>
-        this.players
-          .recordRoundResult(playerId, areaPercent)
-          .then((profile) => ({
-            bestAreaPercent: profile.stats.bestAreaPercent,
-            rounds: profile.stats.rounds,
-          })),
-      onClosed: (closed) => {
-        for (const playerId of closed.playerIds) {
-          if (this.playerRoom.get(playerId) === closed.id) this.playerRoom.delete(playerId);
-        }
-      },
-      log: this.log,
-    });
-
-    this.rooms.set(room.id, room);
-    for (const seat of seats) {
-      this.playerRoom.set(seat.playerId, room.id);
-      const descriptor = room.descriptorFor(seat.playerId);
-      if (descriptor) seat.link.send({ t: 'room', room: descriptor });
-    }
-    this.log(
-      `غرفة جديدة ${room.id.slice(0, 8)} [${region}] — ${seats.length} لاعب بشري، السعة ${MULTIPLAYER.MAX_PLAYERS_PER_ROOM}`,
-    );
-    return room;
+    return roomId ? this.rooms.find((room) => room.id === roomId) : undefined;
   }
 
   // ------------------------------------------------------------- المؤقّت
 
-  /** نبضة واحدة تحرّك كل الغرف وتراجع الطوابير. */
+  /** نبضة واحدة تحرّك كل السيرفرات. */
   private pump(): void {
     const now = Date.now();
     const delta = now - this.lastTick;
     this.lastTick = now;
+    let changed = false;
 
-    for (const room of this.rooms.values()) {
+    for (const room of this.rooms) {
+      const before = room.state;
       try {
         room.tick(delta);
       } catch (error) {
-        this.log(`خطأ في الغرفة ${room.id.slice(0, 8)}: ${(error as Error).message}`);
+        this.log(`خطأ في ${room.name}: ${(error as Error).message}`);
       }
-      if (room.expired) this.rooms.delete(room.id);
+
+      // مجموعة اكتملت ولم يضغط أحد: تنطلق بعد المهلة كي لا ينتظروا إلى الأبد.
+      if (
+        room.state === 'WAITING' &&
+        room.quorumSince > 0 &&
+        now - room.quorumSince >= MULTIPLAYER.MATCHMAKING_TIMEOUT
+      ) {
+        room.begin();
+      }
+      // وسيرفر امتلأ بالبشر ينطلق بلا انتظار.
+      if (room.state === 'WAITING' && room.humanCount >= MULTIPLAYER.MAX_PLAYERS_PER_ROOM) {
+        room.begin();
+      }
+
+      if (room.expired) room.recycle();
+      if (room.state !== before) changed = true;
     }
 
-    for (const region of [...this.queues.keys()]) this.matchRegion(region);
+    if (changed) this.broadcastLobby();
   }
 }

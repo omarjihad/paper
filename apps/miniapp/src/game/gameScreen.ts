@@ -121,6 +121,13 @@ export class GameScreen {
   private extrapolationWindow = 0.4;
   /** آخر قطع مسار رُصد — يربط حدث الموت بمن تسبّب فيه في الجولة المحلية. */
   private lastKill: { killerId: number; victimId: number; x: number; y: number } | null = null;
+  /**
+   * نتيجة وصلت والإعادة ما زالت معروضة.
+   * موتُ اللاعب الوحيد ينهي الجولة فورًا، فتصل النتيجة بعد جزء من الثانية
+   * وتمسح شاشة الإعادة قبل أن يراها أحد. تُحجز هنا حتى يضغط «متابعة».
+   */
+  private heldResult: NetRoundResult | null = null;
+  private camOpen = false;
 
   /** لقطة آخر حالة حيّة — لأن الأرض تُحرَّر لحظة الخروج من الجولة. */
   private snapshotArea = 0;
@@ -514,8 +521,14 @@ export class GameScreen {
       frames,
       colorOf: (id) => ACTOR_COLORS[(engine.actorById(id)?.colorIndex ?? 0) % ACTOR_COLORS.length],
     };
+    this.camOpen = true;
     this.deathCam.show(replay, () => {
+      this.camOpen = false;
       this.hint.textContent = this.net ? 'خرجت من الجولة — بانتظار النتيجة' : 'انتهت جولتك';
+      const held = this.heldResult;
+      this.heldResult = null;
+      if (held) this.finishFromServer(held);
+      else if (!this.net && this.world.engine.status === 'ended') this.finishLocal(null);
     });
   }
 
@@ -624,6 +637,11 @@ export class GameScreen {
   /** نتيجة الخادم: هي المصدر الوحيد للترتيب والمساحة والعملات. */
   private finishFromServer(result: NetRoundResult): void {
     if (this.finished) return;
+    // الإعادة معروضة: نحتفظ بالنتيجة ونعرضها حين يفرغ اللاعب منها.
+    if (this.camOpen) {
+      this.heldResult = result;
+      return;
+    }
     this.finished = true;
     this.onFinish({
       matchId: result.matchId,
@@ -638,7 +656,7 @@ export class GameScreen {
   }
 
   private finishLocal(forced: RoundOutcome | null): void {
-    if (this.finished) return;
+    if (this.finished || this.camOpen) return;
     this.finished = true;
     const engine = this.world.engine;
     const local: Actor | null = this.world.local;

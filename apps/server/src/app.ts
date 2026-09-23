@@ -50,7 +50,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   // ---------------------------------------------------- اللعب الجماعي اللحظي
-  const rooms = new RoomManager(deps.players, (message) => app.log.info(`[غرف] ${message}`));
+  const rooms = new RoomManager(
+    deps.players,
+    (message) => app.log.info(`[سيرفرات] ${message}`),
+    deps.env.serverRegion,
+  );
   rooms.start();
   const detachRealtime = attachRealtime(app.server, {
     env: deps.env,
@@ -79,11 +83,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     regions: regionCatalog(deps.env.serverRegion),
     serverRegion: deps.env.serverRegion,
     config: {
+      lobbyCount: MULTIPLAYER.LOBBY_COUNT,
       maxPlayersPerRoom: MULTIPLAYER.MAX_PLAYERS_PER_ROOM,
       minPlayersToStart: MULTIPLAYER.MIN_PLAYERS_TO_START,
       matchmakingTimeout: MULTIPLAYER.MATCHMAKING_TIMEOUT,
       botFillEnabled: MULTIPLAYER.BOT_FILL_ENABLED,
     },
+    servers: rooms.listServers(),
   }));
 
   const matches = new MatchService();
