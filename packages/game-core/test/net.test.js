@@ -243,3 +243,35 @@ test('البوت المنتظر عودته ليس خارجًا من الجولة
   assert.equal(standing, engine.actors.length, 'لكن كل البوتات لها موعد عودة');
   assert.ok(standing > 1, 'فلا يجوز اعتبار الجولة منتهية');
 });
+
+test('السيطرة على كامل الرقعة تنهي الجولة فورًا', () => {
+  // اللعبة ليست جولات موقوتة: هذه هي نهايتها المقصودة.
+  const small = { ...config, gridWidth: 24, gridHeight: 24, roundSeconds: 0 };
+  const engine = new GameEngine({ config: small, seed: 3, endOnHumanDeath: false });
+  const actor = engine.addParticipant({ id: 1, kind: 'human', name: 'لاعب', colorIndex: 0 });
+
+  assert.equal(engine.status, 'running', 'الجولة تعمل بلا مؤقّت');
+  engine.step(small.tickSeconds);
+  assert.equal(engine.status, 'running', 'ولا تنتهي بمرور الوقت');
+
+  // نمنحه الرقعة كلها كما لو أغلق آخر حلقة.
+  engine.grid.owner.fill(actor.id);
+  actor.area = engine.totalCells;
+  actor.outside = true;
+  actor.trail.length = 0;
+  engine['closeLoop'](actor);
+
+  assert.equal(engine.status, 'ended');
+  assert.equal(engine.endReason, 'conquered');
+  assert.equal(engine.winnerId, actor.id);
+});
+
+test('بلا مؤقّت لا تنتهي الجولة مهما طال الزمن', () => {
+  const endless = { ...config, roundSeconds: 0 };
+  const engine = new GameEngine({ config: endless, seed: 4, endOnHumanDeath: false });
+  engine.addParticipant({ id: 1, kind: 'human', name: 'لاعب', colorIndex: 0 });
+  engine.addParticipant({ id: 2, kind: 'bot', name: 'بوت 1', colorIndex: 1, difficulty: 'easy' });
+  engine.elapsed = 10000;
+  engine.step(endless.tickSeconds);
+  assert.equal(engine.status, 'running');
+});

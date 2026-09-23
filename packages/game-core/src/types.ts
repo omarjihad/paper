@@ -71,7 +71,8 @@ export interface Actor {
 
 export type GameStatus = 'running' | 'ended';
 
-export type EndReason = 'eliminated' | 'timeup' | 'quit' | 'lastStanding';
+/** `conquered` = سيطر مشارك على الرقعة كلها؛ هذه هي النهاية المقصودة للّعبة. */
+export type EndReason = 'eliminated' | 'timeup' | 'quit' | 'lastStanding' | 'conquered';
 
 export type GameEvent =
   | { type: 'capture'; actorId: number; gained: number }

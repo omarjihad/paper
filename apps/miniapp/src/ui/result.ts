@@ -15,9 +15,10 @@ export interface ResultView {
 
 const REASONS: Record<RoundOutcome, string> = {
   eliminated: 'تم قطع مسارك',
-  timeup: 'انتهى وقت الجولة',
+  timeup: 'انتهت الجولة',
   quit: 'خرجت من الجولة',
   survived: 'صمدت حتى النهاية',
+  conquered: 'سيطرت على الرقعة كاملة!',
 };
 
 /** شاشة النتيجة: أرقام الجولة + طريقان للمتابعة. */
@@ -28,7 +29,10 @@ export function resultScreen(
 ): HTMLElement {
   return h('div', { class: 'screen result' }, [
     h('div', { class: 'result__card' }, [
-      h('h2', { class: 'result__title', text: 'انتهت الجولة' }),
+      h('h2', {
+        class: `result__title${view.outcome === 'conquered' ? ' result__title--win' : ''}`,
+        text: view.outcome === 'conquered' ? 'فُزت!' : 'انتهت الجولة',
+      }),
       h('div', { class: 'result__reason', text: REASONS[view.outcome] }),
 
       h('div', { class: 'result__rows' }, [

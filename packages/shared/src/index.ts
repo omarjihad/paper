@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V14';
+export const APP_VERSION = 'V15';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -66,7 +66,10 @@ export interface MatchConfig {
   speedCellsPerSecond: number;
   /** نصف قطر منطقة البداية بالخلايا. */
   startAreaRadius: number;
-  /** مدة الجولة بالثواني (0 = بلا حد). */
+  /**
+   * مدة الجولة بالثواني (0 = بلا حد).
+   * اللعبة ليست جولات موقوتة: تنتهي بالسيطرة الكاملة أو بخروج اللاعب.
+   */
   roundSeconds: number;
   /** تأخير عودة البوت بعد خسارته بالثواني. */
   botRespawnSeconds: number;
@@ -123,7 +126,7 @@ export interface MatchResultResponse {
   rounds: number;
 }
 
-export type RoundOutcome = 'survived' | 'eliminated' | 'timeup' | 'quit';
+export type RoundOutcome = 'survived' | 'eliminated' | 'timeup' | 'quit' | 'conquered';
 
 export interface ApiError {
   error: string;
@@ -157,7 +160,7 @@ export const DEFAULT_MATCH_CONFIG: MatchConfig = {
   tickSeconds: 1 / 60,
   speedCellsPerSecond: 7.5,
   startAreaRadius: 3,
-  roundSeconds: 180,
+  roundSeconds: 0,
   botRespawnSeconds: 4,
 };
 
@@ -200,6 +203,12 @@ export interface MultiplayerConfig {
   SEND_BUFFER_LIMIT: number;
   /** عدد السيرفرات المعروضة للاعب. ثابتة كي يجدها الأصدقاء في المكان نفسه. */
   LOBBY_COUNT: number;
+  /**
+   * أقصى عمر لجولة واحدة بالدقائق.
+   * ليس مؤقّتًا للّعب: الجولة تنتهي بالسيطرة أو بالخروج. هذا حارس يمنع
+   * بقاء سيرفر مشغولًا إلى الأبد بلاعبٍ نسي هاتفه مفتوحًا.
+   */
+  ROUND_HARD_CAP_MINUTES: number;
 }
 
 export const MULTIPLAYER: MultiplayerConfig = {
@@ -219,7 +228,27 @@ export const MULTIPLAYER: MultiplayerConfig = {
   POOR_LINK_RTT_MS: 350,
   SEND_BUFFER_LIMIT: 48 * 1024,
   LOBBY_COUNT: 6,
+  ROUND_HARD_CAP_MINUTES: 20,
 };
+
+/**
+ * أسماء السيرفرات وأعلامها.
+ * أسماء للتمييز بين الغرف لا عناوين مواقع: الخدمة تعمل من منطقة واحدة
+ * تُعلَن للاعب في الشاشة نفسها، فلا يظن أن اختياره يغيّر زمن الاستجابة.
+ */
+export interface LobbyBadge {
+  name: string;
+  flag: string;
+}
+
+export const LOBBY_BADGES: readonly LobbyBadge[] = [
+  { name: 'العراق', flag: '🇮🇶' },
+  { name: 'السعودية', flag: '🇸🇦' },
+  { name: 'مصر', flag: '🇪🇬' },
+  { name: 'الإمارات', flag: '🇦🇪' },
+  { name: 'الكويت', flag: '🇰🇼' },
+  { name: 'الأردن', flag: '🇯🇴' },
+];
 
 /** تقدير جودة الوصلة من زمن الاستجابة المقاس. */
 export type LinkGrade = 'good' | 'fair' | 'weak';
@@ -372,6 +401,8 @@ export interface NetRoundResult {
 export interface LobbyServer {
   id: string;
   name: string;
+  /** علم البلد المعروض بجانب الاسم. */
+  flag: string;
   region: RegionId;
   players: number;
   capacity: number;

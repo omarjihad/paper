@@ -585,16 +585,18 @@ export class GameScreen {
     setChip(this.rankChip, 'المركز', `${this.snapshotRank} / ${engine.actors.length}`);
     this.updateLeaderboard();
 
+    // لا مؤقّت ينتهي: الجولة تنتهي بالسيطرة أو بالخروج، فالعدّاد يصعد
+    // ليقول للاعب كم صمد لا كم بقي له.
     const total = engine.config.roundSeconds;
-    if (total > 0) {
-      const elapsed = this.net ? this.serverElapsed : engine.elapsed;
-      const remaining = Math.max(0, total - elapsed);
-      const minutes = Math.floor(remaining / 60);
-      const seconds = Math.floor(remaining % 60);
-      setChip(this.timeChip, 'الوقت', `${minutes}:${String(seconds).padStart(2, '0')}`);
-    } else {
-      this.timeChip.style.display = 'none';
-    }
+    const elapsed = this.net ? this.serverElapsed : engine.elapsed;
+    const shown = total > 0 ? Math.max(0, total - elapsed) : elapsed;
+    const minutes = Math.floor(shown / 60);
+    const seconds = Math.floor(shown % 60);
+    setChip(
+      this.timeChip,
+      total > 0 ? 'الوقت' : 'صمدت',
+      `${minutes}:${String(seconds).padStart(2, '0')}`,
+    );
   }
 
   /** الصدارة: من الخادم في الجولة الجماعية، ومن المحرك في الجولة المحلية. */

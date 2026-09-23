@@ -45,6 +45,8 @@ export class GameEngine implements WorldView {
   elapsed = 0;
   status: GameStatus = 'running';
   endReason: EndReason | null = null;
+  /** من سيطر على الرقعة كلها، أو 0 إن انتهت الجولة لسبب آخر. */
+  winnerId = 0;
 
   private readonly byId = new Map<number, Actor>();
   private readonly controllers = new Map<number, ActorController>();
@@ -381,6 +383,12 @@ export class GameEngine implements WorldView {
 
     this.events.push({ type: 'capture', actorId: actor.id, gained });
     this.flushWipes();
+
+    // السيطرة الكاملة هي نهاية اللعبة المقصودة، لا انتهاء مؤقّت.
+    if (this.authoritative && actor.area >= this.totalCells) {
+      this.winnerId = actor.id;
+      this.end('conquered');
+    }
   }
 
   private transferCell(previousOwner: number, actor: Actor): void {

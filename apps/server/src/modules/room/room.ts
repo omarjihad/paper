@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ACTOR_COLORS,
   DEFAULT_MATCH_CONFIG,
+  LOBBY_BADGES,
   KILL_REWARD_COINS,
   MULTIPLAYER,
   type MatchParticipant,
@@ -106,7 +107,11 @@ export class Room {
   ) {}
 
   get name(): string {
-    return `سيرفر ${this.index + 1}`;
+    return LOBBY_BADGES[this.index % LOBBY_BADGES.length].name;
+  }
+
+  get flag(): string {
+    return LOBBY_BADGES[this.index % LOBBY_BADGES.length].flag;
   }
 
   /**
@@ -355,6 +360,11 @@ export class Room {
 
     this.dispatchEvents();
     this.expireDisconnected();
+
+    // حارس لا مؤقّت لعب: يمنع بقاء سيرفر مشغولًا بلاعبٍ نسي هاتفه مفتوحًا.
+    if (Date.now() - this.stateSince >= MULTIPLAYER.ROUND_HARD_CAP_MINUTES * 60_000) {
+      this.world.engine.end('timeup');
+    }
 
     this.snapshotClock += deltaMs;
     if (this.snapshotClock >= SNAPSHOT_INTERVAL_MS) {
@@ -621,9 +631,13 @@ export class Room {
       const rank = lb.findIndex((row) => row.actorId === player.actorId) + 1 || lb.length;
       const outcome: RoundOutcome = player.eliminated
         ? 'eliminated'
-        : engine.endReason === 'timeup'
-          ? 'timeup'
-          : 'survived';
+        : engine.endReason === 'conquered'
+          ? engine.winnerId === player.actorId
+            ? 'conquered'
+            : 'eliminated'
+          : engine.endReason === 'timeup'
+            ? 'timeup'
+            : 'survived';
 
       let bestAreaPercent = areaPercent;
       let rounds = 0;

@@ -85,6 +85,7 @@ export class RoomManager {
     return this.rooms.map((room) => ({
       id: room.id,
       name: room.name,
+      flag: room.flag,
       region: room.region,
       players: room.humanCount,
       capacity: MULTIPLAYER.MAX_PLAYERS_PER_ROOM,
