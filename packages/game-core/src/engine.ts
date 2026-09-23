@@ -183,6 +183,41 @@ export class GameEngine implements WorldView {
     this.controllers.set(actorId, controller);
   }
 
+  /**
+   * تسليم مقعد مشاركٍ قائم إلى لاعب جديد وإعادته حيًّا في أرضٍ نظيفة.
+   *
+   * عدد المقاعد ثابت منذ بناء العالم، فاللاعب المتأخّر أو العائد بعد موته
+   * يحلّ محلّ بوت بدل أن نضيف مشاركًا حادي عشر. كل أثر صاحب المقعد السابق
+   * يُمحى أولًا — أرضه ومساره وسجلّه — كي لا يرث الداخلُ مكاسبَ غيره.
+   *
+   * لا يُنفَّذ في المرآة: المقاعد قرارٌ خادمي يصل إلى العميل في وصف الغرفة.
+   */
+  reseat(actorId: number, spec: { kind: ActorKind; name: string }): Actor | null {
+    if (!this.authoritative) return null;
+    const actor = this.byId.get(actorId);
+    if (!actor) return null;
+
+    const grid = this.grid;
+    for (const index of actor.trail) grid.trail[index] = 0;
+    actor.trail.length = 0;
+    for (let i = 0; i < grid.owner.length; i++) {
+      if (grid.owner[i] === actor.id) grid.owner[i] = 0;
+    }
+
+    actor.kind = spec.kind;
+    actor.name = spec.name;
+    actor.difficulty = null;
+    actor.area = 0;
+    actor.kills = 0;
+    actor.deaths = 0;
+    actor.respawnAt = -1;
+    actor.alive = false;
+
+    this.placeActor(actor);
+    this.events.push({ type: 'respawn', actorId: actor.id });
+    return actor;
+  }
+
   // ------------------------------------------------------------- المحاكاة
 
   /** خطوة محاكاة واحدة بزمن ثابت (dt بالثواني). */

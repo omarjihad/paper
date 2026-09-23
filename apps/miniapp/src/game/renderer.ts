@@ -39,6 +39,12 @@ export class Renderer {
   private cameraX = 0;
   private cameraY = 0;
   private cameraReady = false;
+  /**
+   * المساحات الآمنة تتغيّر عند تغيّر القياس فقط.
+   * قراءتها في كل إطار تُجبر المتصفّح على إعادة حساب الأنماط ستّين مرة
+   * في الثانية بلا سبب — وهي قراءة تُبطل التخطيط المخزَّن.
+   */
+  private inset = { left: 0, bottom: 0 };
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -68,6 +74,7 @@ export class Renderer {
     this.canvas.height = Math.round(this.height * this.dpr);
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.scale = Math.min(this.width, this.height) / (VISIBLE_CELLS * this.engine.config.cellSize);
+    this.inset = readInset();
     // على شاشة قصيرة (وضع العرض) لا يجوز أن تلتهم الخريطة ربع الارتفاع.
     const shortSide = Math.min(this.width, this.height);
     const ratio = this.width > this.height ? 0.2 : 0.26;
@@ -128,7 +135,7 @@ export class Renderer {
 
   /** الخريطة المصغّرة في الزاوية السفلية، بعيدًا عن مكان الإبهام. */
   private drawMinimap(cell: number): void {
-    const inset = readInset();
+    const inset = this.inset;
     const size = this.minimapSize;
     const x = MINIMAP_MARGIN + inset.left;
     const y = this.height - size - MINIMAP_MARGIN - inset.bottom;

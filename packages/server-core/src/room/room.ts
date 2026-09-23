@@ -16,7 +16,7 @@ import {
   type RoundOutcome,
   type ServerMessage,
 } from '@riqaa/shared';
-import { buildWorld, encodeKeyframe, packActor, type World } from '@riqaa/game-core';
+import { buildWorld, encodeKeyframe, HumanController, packActor, type World } from '@riqaa/game-core';
 import type { GameEvent } from '@riqaa/game-core';
 
 /** وصلة عميل واحد — مجرّدة عن مكتبة WebSocket كي تبقى الغرفة قابلة للاختبار. */
@@ -71,6 +71,8 @@ export interface RoomHooks {
 
 const SNAPSHOT_INTERVAL_MS = 1000 / MULTIPLAYER.SNAPSHOT_HZ;
 const KEYFRAME_INTERVAL_MS = 1000 / MULTIPLAYER.KEYFRAME_HZ;
+/** أقصر فاصل مسموح بين إطارين مفتاحيين حين يطلبهما حدثٌ لا المؤقّت. */
+const KEYFRAME_MIN_GAP_MS = 250;
 /** مهلة بقاء الغرفة بعد انتهائها قبل إزالتها. */
 const LINGER_MS = 15000;
 
@@ -95,6 +97,13 @@ export class Room {
   private tickAccumulator = 0;
   private snapshotClock = 0;
   private keyframeClock = 0;
+  /**
+   * طلب إطار مفتاحي خارج الدور.
+   * الاستحواذ هو اللحظة الوحيدة التي تتغيّر فيها الأرض دفعةً واحدة، وهو
+   * بالضبط ما تخمّنه مرآة الجهاز. تركُ التصحيح للدور الزمني يعني أن اللاعب
+   * قد يرى أرضًا ضمّها فعلًا — أو لم يضمّها — لثانية كاملة قبل أن تُصحَّح.
+   */
+  private keyframeDue = false;
   private tickCount = 0;
   private closedAt = 0;
   private readonly eventBuffer: GameEvent[] = [];
@@ -121,9 +130,32 @@ export class Room {
    */
   quorumSince = 0;
 
-  /** قابل للانضمام ما دام في الانتظار ولم يمتلئ بالبشر. */
+  /**
+   * قابل للانضمام في الانتظار، **وأيضًا أثناء الجولة** ما دام فيه مقعد
+   * يمكن تسليمه.
+   *
+   * منعُ الدخول أثناء الجولة كان يعني أن من يموت ينتظر موت الجميع قبل أن
+   * يعود إلى أصحابه — وهو انتظار بلا سبب: المقاعد التي تشغلها البوتات
+   * موجودة أصلًا، وتسليم واحدٍ منها للاعب عائد لا يغيّر حجم الجولة.
+   */
   get joinable(): boolean {
-    return this.state === 'WAITING' && this.players.size < MULTIPLAYER.MAX_PLAYERS_PER_ROOM;
+    if (this.state === 'WAITING') return this.players.size < MULTIPLAYER.MAX_PLAYERS_PER_ROOM;
+    if (this.state === 'COUNTDOWN' || this.state === 'PLAYING') return this.freeSeat() !== null;
+    return false;
+  }
+
+  /**
+   * مقعد يمكن تسليمه للاعب داخل جولة جارية.
+   * البوتات أولًا، ثم مقاعد لاعبين غادروا. لا يُلمس مقعد لاعبٍ بشريٍّ
+   * حاضر ولو كان ميتًا: موته لا يعني تنازله عن مكانه.
+   */
+  private freeSeat(): MatchParticipant | null {
+    if (!this.world) return null;
+    for (const participant of this.participants) {
+      if (this.byActor.has(participant.actorId)) continue;
+      return participant;
+    }
+    return null;
   }
 
   /** مقعد جديد قبل الانطلاق. يعيد false إن لم يعد السيرفر يقبل. */
@@ -149,6 +181,76 @@ export class Room {
     });
     this.refreshQuorum();
     return true;
+  }
+
+  /**
+   * دخول لاعب إلى جولة جارية بتسليمه مقعدًا شاغرًا.
+   * يعيد وصف الغرفة ليبدأ اللعب فورًا، أو null إن لم يبقَ مقعد.
+   */
+  joinLive(seat: RoomSeat): RoomDescriptor | null {
+    const world = this.world;
+    if (!world || (this.state !== 'PLAYING' && this.state !== 'COUNTDOWN')) return null;
+
+    // عودة لاعبٍ ما زال في الغرفة: نُحيي مقعده هو لا مقعدًا غريبًا.
+    const existing = this.players.get(seat.playerId);
+    const target = existing
+      ? this.participants.find((p) => p.actorId === existing.actorId)
+      : this.freeSeat();
+    if (!target) return null;
+
+    const actor = world.engine.reseat(target.actorId, { kind: 'human', name: seat.name });
+    if (!actor) return null;
+
+    // المشارك نوعٌ مميَّز باتحاد، فيُستبدل العنصر كاملًا لا تُعدَّل حقوله.
+    const slot = this.participants.indexOf(target);
+    this.participants[slot] = {
+      kind: 'human',
+      actorId: target.actorId,
+      name: seat.name,
+      colorIndex: target.colorIndex,
+      avatarUrl: seat.avatarUrl,
+    };
+
+    // البوت الذي كان يقود هذا المقعد يُستبدل بوحدة تحكّم بشرية تتلقّى
+    // الإدخال من الشبكة، وإلا بقي اللاعب يشاهد بوتًا يلعب بدله.
+    const controller = new HumanController(actor.id);
+    world.engine.setController(actor.id, controller);
+    world.humans.set(actor.id, controller);
+
+    const player: RoomPlayer = existing ?? {
+      playerId: seat.playerId,
+      actorId: target.actorId,
+      name: seat.name,
+      avatarUrl: seat.avatarUrl,
+      link: seat.link,
+      disconnectedAt: 0,
+      coins: 0,
+      kills: 0,
+      eliminated: false,
+      reported: false,
+      snapshotSkip: 0,
+    };
+    player.link = seat.link;
+    player.name = seat.name;
+    player.actorId = target.actorId;
+    player.eliminated = false;
+    player.disconnectedAt = 0;
+    // جولة جديدة لهذا اللاعب: نتيجته السابقة سُجّلت، وهذه تُسجَّل عند خروجه.
+    player.reported = false;
+    player.kills = 0;
+
+    this.players.set(seat.playerId, player);
+    this.byActor.set(target.actorId, player);
+    this.hooks.log(`${seat.name} دخل ${this.name} في جولة جارية على المقعد ${target.actorId}`);
+
+    // الأسماء عند بقية اللاعبين تأتي من لوحة الصدارة في كل لقطة، لكن وصف
+    // الغرفة هو ما يبني عالمهم، فنرسله محدَّثًا كي لا يبقى اسم بوتٍ معلّقًا.
+    for (const other of this.players.values()) {
+      if (other.playerId === seat.playerId) continue;
+      const descriptor = this.descriptorFor(other.playerId);
+      if (descriptor) other.link?.send({ t: 'room', room: descriptor });
+    }
+    return this.descriptorFor(seat.playerId);
   }
 
   /** مغادرة قبل الانطلاق لا تترك أثرًا. */
@@ -372,8 +474,10 @@ export class Room {
       this.broadcastSnapshot();
     }
     this.keyframeClock += deltaMs;
-    if (this.keyframeClock >= KEYFRAME_INTERVAL_MS) {
+    // حدٌّ أدنى بين إطارين كي لا يتحوّل تتابعُ استحواذاتٍ إلى فيضان.
+    if (this.keyframeClock >= KEYFRAME_INTERVAL_MS || (this.keyframeDue && this.keyframeClock >= KEYFRAME_MIN_GAP_MS)) {
       this.keyframeClock = 0;
+      this.keyframeDue = false;
       this.broadcastKeyframe();
     }
 
@@ -447,6 +551,8 @@ export class Room {
         if (victim && !victim.eliminated) {
           victim.eliminated = true;
           feed.push({ k: 'out', victim: victim.name, victimActorId: victim.actorId });
+          // نتيجته الآن لا عند انتهاء الغرفة: الباقون قد يلعبون طويلًا.
+          this.releaseSeat(victim);
         }
         // من أخرجه ولماذا وأين: بلا هذه الثلاثة لا يعرف اللاعب إن ظُلم أم أخطأ.
         const blame = killedBy.get(event.actorId);
@@ -463,6 +569,7 @@ export class Room {
         items.push({ e: 'respawn', actorId: event.actorId });
       } else if (event.type === 'capture' && event.gained > 0) {
         items.push({ e: 'capture', actorId: event.actorId, gained: event.gained });
+        this.keyframeDue = true;
       }
     }
 
@@ -508,11 +615,25 @@ export class Room {
     }
     const actor = this.world.engine.actorById(player.actorId);
     if (actor?.alive) this.world.engine.applyDeath(player.actorId, 'trail');
-    else player.eliminated = true;
+    else {
+      player.eliminated = true;
+      this.releaseSeat(player);
+    }
 
     // قد يقع الخروج خارج دورة المحاكاة (انسحاب أثناء العد التنازلي مثلًا).
     this.dispatchEvents();
     if (this.state !== 'FINISHED' && this.roundOver()) this.setState('FINISHED');
+  }
+
+  /**
+   * لاعب خرج والجولة مستمرة: تصله نتيجته فورًا.
+   * المقعد يبقى باسمه ما دام متصلًا كي يعود إليه هو إن أراد؛ فإن انقطع
+   * تولّت مهلة العودة إخلاءه لغيره.
+   */
+  private releaseSeat(player: RoomPlayer): void {
+    if (this.state === 'FINISHED') return;
+    const lb = this.leaderboard();
+    void this.reportPlayer(player, lb);
   }
 
   // --------------------------------------------------------------- البث
@@ -616,6 +737,60 @@ export class Room {
   }
 
   /** حصاد النتائج: يُحفظ في قاعدة البيانات ثم يُرسل لكل لاعب نتيجته. */
+  /**
+   * نتيجة لاعب واحد.
+   *
+   * تُرسل عند خروجه هو، لا عند انتهاء الغرفة: في جولة فيها عدة بشر قد
+   * يبقى الباقون يلعبون دقائق، وحبسُ نتيجة من خرج حتى ذلك الحين يعني أنه
+   * يحدّق في شاشة انتظارٍ بلا نهاية — ولا يستطيع العودة للّعب.
+   */
+  private async reportPlayer(
+    player: RoomPlayer,
+    lb: NetLeaderEntry[],
+  ): Promise<NetRoundResult | null> {
+    if (player.reported || !this.world) return null;
+    player.reported = true;
+    const engine = this.world.engine;
+
+    const actor = engine.actorById(player.actorId);
+    const areaPercent = actor ? Number(engine.areaPercent(actor).toFixed(2)) : 0;
+    const rank = lb.findIndex((row) => row.actorId === player.actorId) + 1 || lb.length;
+    const outcome: RoundOutcome = player.eliminated
+      ? 'eliminated'
+      : engine.endReason === 'conquered'
+        ? engine.winnerId === player.actorId
+          ? 'conquered'
+          : 'eliminated'
+        : engine.endReason === 'timeup'
+          ? 'timeup'
+          : 'survived';
+
+    let bestAreaPercent = areaPercent;
+    let rounds = 0;
+    try {
+      const saved = await this.hooks.onPlayerResult(player.playerId, areaPercent);
+      bestAreaPercent = saved.bestAreaPercent;
+      rounds = saved.rounds;
+    } catch (error) {
+      this.hooks.log(`تعذّر حفظ نتيجة ${shortId(player.playerId)}: ${(error as Error).message}`);
+    }
+
+    const result: NetRoundResult = {
+      outcome,
+      rank,
+      participants: this.participants.length,
+      areaPercent,
+      coins: player.coins,
+      kills: player.kills,
+      leaderboard: lb,
+      matchId: this.id,
+      bestAreaPercent,
+      rounds,
+    };
+    player.link?.send({ t: 'over', result });
+    return result;
+  }
+
   private async settle(): Promise<void> {
     this.closedAt = Date.now();
     if (!this.world) return;
@@ -623,45 +798,8 @@ export class Room {
     const lb = this.leaderboard();
 
     for (const player of this.players.values()) {
-      if (player.reported) continue;
-      player.reported = true;
-
-      const actor = engine.actorById(player.actorId);
-      const areaPercent = actor ? Number(engine.areaPercent(actor).toFixed(2)) : 0;
-      const rank = lb.findIndex((row) => row.actorId === player.actorId) + 1 || lb.length;
-      const outcome: RoundOutcome = player.eliminated
-        ? 'eliminated'
-        : engine.endReason === 'conquered'
-          ? engine.winnerId === player.actorId
-            ? 'conquered'
-            : 'eliminated'
-          : engine.endReason === 'timeup'
-            ? 'timeup'
-            : 'survived';
-
-      let bestAreaPercent = areaPercent;
-      let rounds = 0;
-      try {
-        const saved = await this.hooks.onPlayerResult(player.playerId, areaPercent);
-        bestAreaPercent = saved.bestAreaPercent;
-        rounds = saved.rounds;
-      } catch (error) {
-        this.hooks.log(`تعذّر حفظ نتيجة ${shortId(player.playerId)}: ${(error as Error).message}`);
-      }
-
-      const result: NetRoundResult = {
-        outcome,
-        rank,
-        participants: this.participants.length,
-        areaPercent,
-        coins: player.coins,
-        kills: player.kills,
-        leaderboard: lb,
-        matchId: this.id,
-        bestAreaPercent,
-        rounds,
-      };
-      player.link?.send({ t: 'over', result });
+      const result = await this.reportPlayer(player, lb);
+      if (!result) continue;
     }
     this.hooks.onClosed(this);
   }

@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V16';
+export const APP_VERSION = 'V17';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -222,7 +222,7 @@ export const MULTIPLAYER: MultiplayerConfig = {
   COUNTDOWN_MS: 1000,
   RECONNECT_GRACE_MS: 30000,
   SNAPSHOT_HZ: 15,
-  KEYFRAME_HZ: 0.5,
+  KEYFRAME_HZ: 1,
   TICK_HZ: 60,
   WEAK_LINK_RTT_MS: 180,
   POOR_LINK_RTT_MS: 350,

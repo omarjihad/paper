@@ -80,6 +80,9 @@ export function serverListScreen(options: {
           const seated = server.id === mine;
           const busy = !server.joinable && !seated;
           const full = server.players >= server.capacity;
+          // جولة جارية فيها مقعد شاغر: يُدخَل إليها فورًا بلا انتظار ولا
+          // ضغطة «ابدأ» — وهذا ما يعيد من مات إلى أصحابه في الحال.
+          const live = server.joinable && server.state !== 'WAITING';
           return h(
             'button',
             {
@@ -97,8 +100,16 @@ export function serverListScreen(options: {
                 h('i', { text: `/${server.capacity}` }),
               ]),
               h('span', {
-                class: `sv__tag${busy ? ' sv__tag--busy' : ''}${seated ? ' sv__tag--on' : ''}`,
-                text: busy ? 'جولة جارية' : seated ? 'أنت هنا' : full ? 'ممتلئ' : 'متاح',
+                class: `sv__tag${busy ? ' sv__tag--busy' : ''}${seated ? ' sv__tag--on' : ''}${live ? ' sv__tag--live' : ''}`,
+                text: busy
+                  ? 'جولة جارية'
+                  : seated
+                    ? 'أنت هنا'
+                    : live
+                      ? 'جارية — ادخل'
+                      : full
+                        ? 'ممتلئ'
+                        : 'متاح',
               }),
             ],
           );
@@ -107,7 +118,7 @@ export function serverListScreen(options: {
       startButton.disabled = mine === null;
       notice.textContent = mine
         ? 'اضغط «ابدأ» متى شئت، أو انتظر انضمام لاعبين.'
-        : 'اختر سيرفرًا للانضمام إليه.';
+        : 'اختر سيرفرًا للانضمام إليه — والجولة الجارية تدخلها فورًا.';
     },
     setPing(ms) {
       ping = ms;

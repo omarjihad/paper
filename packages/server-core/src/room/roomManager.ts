@@ -129,18 +129,33 @@ export class RoomManager {
     return descriptor;
   }
 
-  /** يجلس اللاعب في سيرفر مختار. يعيد سبب الرفض إن تعذّر. */
-  join(seat: RoomSeat, roomId: string): { ok: true } | { ok: false; reason: string } {
+  /**
+   * يجلس اللاعب في سيرفر مختار.
+   *
+   * إن كانت جولته جارية دخل فورًا على مقعد شاغر بدل أن يُردّ حتى تنتهي:
+   * من مات يعود إلى أصحابه في الحال، ولا ينتظر موت الجميع.
+   */
+  join(seat: RoomSeat, roomId: string): { ok: true; live: boolean } | { ok: false; reason: string } {
     const room = this.rooms.find((candidate) => candidate.id === roomId);
     if (!room) return { ok: false, reason: 'هذا السيرفر غير موجود' };
-    if (room.state !== 'WAITING') return { ok: false, reason: 'الجولة بدأت في هذا السيرفر، اختر غيره' };
+    if (room.finished) return { ok: false, reason: 'انتهت الجولة في هذا السيرفر، اختر غيره' };
     if (!room.joinable) return { ok: false, reason: 'السيرفر ممتلئ' };
+
+    if (room.state !== 'WAITING') {
+      this.leaveSeat(seat.playerId);
+      const descriptor = room.joinLive(seat);
+      if (!descriptor) return { ok: false, reason: 'السيرفر ممتلئ' };
+      this.playerRoom.set(seat.playerId, room.id);
+      seat.link.send({ t: 'room', room: descriptor });
+      this.broadcastLobby();
+      return { ok: true, live: true };
+    }
 
     this.leaveSeat(seat.playerId);
     if (!room.seat(seat)) return { ok: false, reason: 'السيرفر ممتلئ' };
     this.playerRoom.set(seat.playerId, room.id);
     this.broadcastLobby();
-    return { ok: true };
+    return { ok: true, live: false };
   }
 
   /** يبدأ الجولة في سيرفر اللاعب — بضغطته هو. */

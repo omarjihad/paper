@@ -204,15 +204,23 @@ export class GameServer implements DurableObject {
 
     // لا إقلاع في العامل يُسجَّل عنده الـwebhook مرّة، فنسجّله كسولًا عند أول
     // طلب بعد كل نشر. بدونه لا يردّ البوت على /start فلا يجد اللاعب مدخلًا.
-    void this.ensureWebhook();
+    void this.ensureWebhook(url);
 
     if (path === '/api/health') {
+      const origin = this.publicOrigin(url);
       return json({
         ok: true,
         version: APP_VERSION,
         storage: this.players.kind,
         telegram: this.config.telegramBotToken ? 'configured' : 'missing',
-        bot: this.config.telegramBotToken && clean(this.env.PUBLIC_URL) ? 'enabled' : 'disabled',
+        // لا نكتفي بـ«معطّل»: نقول أي شرطٍ تخلّف، وإلا ظلّ الناشر يخمّن.
+        bot: !this.config.telegramBotToken
+          ? 'disabled: TELEGRAM_BOT_TOKEN غير مضبوط'
+          : !origin
+            ? 'disabled: تعذّر تحديد العنوان العام'
+            : 'enabled',
+        webhook: (await this.ctx.storage.get<string>('webhook')) ?? 'لم يُسجَّل بعد',
+        publicUrl: origin,
         realtime: this.rooms.stats,
         region: this.config.serverRegion,
         runtime: 'cloudflare',
@@ -269,11 +277,11 @@ export class GameServer implements DurableObject {
    * العنوان المسجَّل يُحفَظ في التخزين، فلا نُتعب تيليجرام بطلبٍ في كل نشر
    * ما لم يتغيّر العنوان أو الرمز فعلًا. الفشل لا يُسقط شيئًا.
    */
-  private async ensureWebhook(): Promise<void> {
+  private async ensureWebhook(url: URL): Promise<void> {
     if (this.webhookChecked) return;
     this.webhookChecked = true;
 
-    const publicUrl = clean(this.env.PUBLIC_URL);
+    const publicUrl = this.publicOrigin(url);
     const token = this.config.telegramBotToken;
     if (!token || !publicUrl) return;
 
@@ -298,12 +306,28 @@ export class GameServer implements DurableObject {
     }
   }
 
+  /**
+   * العنوان العام للخدمة.
+   *
+   * يُشتق من الطلب نفسه: العامل لا يرى إلا العنوان الذي وصله فعلًا، وهو
+   * بالضبط ما يجب أن يسجَّل لدى تيليجرام. ضبطُه يدويًا كان خطوةً إضافية
+   * ينساها الناشر فيصمت البوت بلا سبب ظاهر. يبقى PUBLIC_URL متقدّمًا عليه
+   * لمن يضع اللعبة خلف دومين خاص.
+   */
+  private publicOrigin(url: URL): string {
+    const explicit = clean(this.env.PUBLIC_URL);
+    if (explicit) return explicit.replace(/\/+$/, '');
+    // تيليجرام لا يقبل إلا https، فلا معنى لتسجيل عنوان تطوير محلّي.
+    if (url.protocol !== 'https:' || url.hostname === 'localhost') return '';
+    return url.origin;
+  }
+
   private async webhook(request: Request): Promise<Response> {
     const provided = request.headers.get('x-telegram-bot-api-secret-token') ?? '';
     if (!timingSafeEqual(utf8(provided), utf8(webhookSecret(this.env)))) {
       return json({ error: 'forbidden', message: 'رمز التحقق غير صحيح' }, 403);
     }
-    const publicUrl = clean(this.env.PUBLIC_URL);
+    const publicUrl = this.publicOrigin(new URL(request.url));
     const token = this.config.telegramBotToken;
     if (!token || !publicUrl) return json({ ok: true, outcome: 'ignored' });
 

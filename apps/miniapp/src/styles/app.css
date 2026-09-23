@@ -931,6 +931,11 @@ body {
   color: #ffb443;
 }
 
+/* جولة جارية يمكن الدخول إليها الآن — دعوة لا تحذير. */
+.sv__tag--live {
+  color: #6ee7a8;
+}
+
 .sv__foot {
   display: grid;
   justify-items: center;
