@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { unauthorized } from '../../core/errors.js';
+import { fromHex, hmacRaw, timingSafeEqual, toHex, utf8 } from '../crypto/index.js';
+import { unauthorized } from '../core/errors.js';
 
 /** بيانات المستخدم كما يرسلها تيليجرام داخل initData. */
 export interface TelegramUser {
@@ -95,10 +95,8 @@ function buildDataCheckString(params: URLSearchParams, includeSignature: boolean
 }
 
 function computeHash(params: URLSearchParams, botToken: string, includeSignature: boolean): string {
-  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
-  return createHmac('sha256', secretKey)
-    .update(buildDataCheckString(params, includeSignature))
-    .digest('hex');
+  const secretKey = hmacRaw(utf8('WebAppData'), botToken);
+  return toHex(hmacRaw(secretKey, buildDataCheckString(params, includeSignature)));
 }
 
 /**
@@ -126,10 +124,8 @@ export function summarizeInitData(initData: string, botToken: string): string {
 }
 
 function safeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-  } catch {
-    return false;
-  }
+  const left = fromHex(a);
+  const right = fromHex(b);
+  if (!left || !right) return false;
+  return timingSafeEqual(left, right);
 }

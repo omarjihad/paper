@@ -27,7 +27,7 @@ export class RoomManager {
   private readonly playerRoom = new Map<string, string>();
   /** من يتابع قائمة السيرفرات الآن. */
   private readonly watchers = new Map<string, ClientLink>();
-  private timer: NodeJS.Timeout | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
   private lastTick = Date.now();
 
   constructor(
@@ -60,7 +60,8 @@ export class RoomManager {
     if (this.timer) return;
     this.lastTick = Date.now();
     this.timer = setInterval(() => this.pump(), Math.round(1000 / MULTIPLAYER.TICK_HZ));
-    this.timer.unref?.();
+    // unref موجود في Node وحده — يمنع المؤقّت من إبقاء العملية حيّة.
+    (this.timer as { unref?: () => void }).unref?.();
   }
 
   stop(): void {
@@ -195,8 +196,8 @@ export class RoomManager {
 
   // ------------------------------------------------------------- المؤقّت
 
-  /** نبضة واحدة تحرّك كل السيرفرات. */
-  private pump(): void {
+  /** نبضة واحدة تحرّك كل السيرفرات. يقودها كل وقت تشغيل بمؤقّته. */
+  pump(): void {
     const now = Date.now();
     const delta = now - this.lastTick;
     this.lastTick = now;

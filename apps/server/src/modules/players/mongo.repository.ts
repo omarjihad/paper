@@ -1,6 +1,6 @@
 import { MongoClient, type Collection, type Db } from 'mongodb';
 import type { PlayerProfile } from '@riqaa/shared';
-import { emptyProfile, type PlayerRepository, type UpsertPlayerInput } from './player.repository.js';
+import { emptyProfile, type PlayerRepository, type UpsertPlayerInput } from '@riqaa/server-core';
 
 interface PlayerDocument extends PlayerProfile {
   _id: string;

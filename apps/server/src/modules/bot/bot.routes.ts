@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, utf8 } from '@riqaa/server-core';
 import type { FastifyInstance } from 'fastify';
 import type { TelegramBot, TelegramUpdate } from './bot.service.js';
 
@@ -33,8 +33,5 @@ export async function registerBotRoutes(app: FastifyInstance, deps: BotDeps): Pr
 }
 
 function secretMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  return timingSafeEqual(utf8(provided), utf8(expected));
 }

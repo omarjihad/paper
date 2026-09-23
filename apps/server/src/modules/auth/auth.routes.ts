@@ -1,10 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthRequest, AuthResponse, PlayerProfile } from '@riqaa/shared';
 import type { Env } from '../../core/env.js';
-import { notFound, unauthorized } from '../../core/errors.js';
-import type { PlayerRepository } from '../players/player.repository.js';
-import { issueToken, verifyToken } from './session.js';
-import { summarizeInitData, verifyInitData } from './telegram.js';
+import {
+  issueToken,
+  notFound,
+  summarizeInitData,
+  unauthorized,
+  verifyInitData,
+  verifyToken,
+  type PlayerRepository,
+} from '@riqaa/server-core';
 
 declare module 'fastify' {
   interface FastifyRequest {

@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { hmacHex } from '@riqaa/server-core';
 import { DEFAULT_REGION, isRegionId, type RegionId } from '@riqaa/shared';
 
 /** قيمة تطوير معروفة — لا يُسمح بها في الإنتاج إطلاقًا. */
@@ -105,7 +105,7 @@ function resolveWebhookSecret(sessionSecret: string): string {
   const explicit = clean(process.env.TELEGRAM_WEBHOOK_SECRET);
   // تيليجرام يقبل A-Z a-z 0-9 _ - فقط، بطول 1..256.
   if (explicit) return explicit.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 256);
-  return createHmac('sha256', sessionSecret).update('riqaa-telegram-webhook').digest('hex').slice(0, 48);
+  return hmacHex(sessionSecret, 'riqaa-telegram-webhook').slice(0, 48);
 }
 
 /**

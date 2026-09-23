@@ -1,7 +1,6 @@
 import type { Env } from '../core/env.js';
-import { MemoryPlayerRepository } from '../modules/players/memory.repository.js';
+import { MemoryPlayerRepository, type PlayerRepository } from '@riqaa/server-core';
 import { MongoPlayerRepository } from '../modules/players/mongo.repository.js';
-import type { PlayerRepository } from '../modules/players/player.repository.js';
 
 /**
  * يختار التخزين المناسب: مونغو إن كان متاحًا، وإلا ذاكرة مؤقتة.

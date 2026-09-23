@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomId } from '../crypto/index.js';
 import {
   ACTOR_COLORS,
   DEFAULT_MATCH_CONFIG,
@@ -79,7 +79,7 @@ const LINGER_MS = 15000;
  * عدة غرف تعمل في اللحظة نفسها بلا أي حالة مشتركة بينها سوى المؤقّت العام.
  */
 export class Room {
-  readonly id = randomUUID();
+  readonly id = randomId();
   readonly config = DEFAULT_MATCH_CONFIG;
   readonly createdAt = Date.now();
 

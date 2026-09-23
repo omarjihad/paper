@@ -7,7 +7,7 @@ import {
   type MatchParticipant,
   type MatchStartResponse,
 } from '@riqaa/shared';
-import { badRequest } from '../../core/errors.js';
+import { badRequest } from '@riqaa/server-core';
 
 interface ActiveMatch {
   matchId: string;

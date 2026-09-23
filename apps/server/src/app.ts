@@ -6,16 +6,15 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { APP_VERSION, MULTIPLAYER } from '@riqaa/shared';
 import type { Env } from './core/env.js';
-import { AppError } from './core/errors.js';
+import { AppError } from '@riqaa/server-core';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
 import { registerBotRoutes } from './modules/bot/bot.routes.js';
 import { registerClientErrorRoute } from './modules/diagnostics/client-error.routes.js';
 import type { TelegramBot } from './modules/bot/bot.service.js';
 import { registerMatchRoutes } from './modules/match/match.routes.js';
 import { MatchService } from './modules/match/match.service.js';
-import type { PlayerRepository } from './modules/players/player.repository.js';
-import { regionCatalog } from './modules/room/regions.js';
-import { RoomManager } from './modules/room/roomManager.js';
+
+import { regionCatalog, RoomManager, type PlayerRepository } from '@riqaa/server-core';
 import { attachRealtime } from './realtime/wsGateway.js';
 
 export interface AppDeps {

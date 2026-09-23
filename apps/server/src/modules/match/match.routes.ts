@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { MatchResultRequest, MatchResultResponse, MatchStartResponse } from '@riqaa/shared';
 import type { Env } from '../../core/env.js';
-import { badRequest, notFound } from '../../core/errors.js';
+import { badRequest, notFound } from '@riqaa/server-core';
 import { requireAuth } from '../auth/auth.routes.js';
-import type { PlayerRepository } from '../players/player.repository.js';
+import type { PlayerRepository } from '@riqaa/server-core';
 import type { MatchService } from './match.service.js';
 
 export interface MatchDeps {
