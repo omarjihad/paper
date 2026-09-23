@@ -215,6 +215,9 @@ export class App {
         lobby.setStatus('جاري البحث عن لاعبين…');
         lobby.setQueue(message.waiting, message.needed);
       }),
+      this.net.watchLink((state) => {
+        if (state === 'reconnecting') lobby.setStatus('انقطع الاتصال — جارٍ العودة…');
+      }),
       this.net.on('room', (message) => this.enterRoom(message.room)),
       this.net.on('state', (message) => {
         if (message.state === 'COUNTDOWN') lobby.setCountdown(message.startsInMs);
@@ -223,7 +226,7 @@ export class App {
         this.releaseLobby();
         // ليست كل الأخطاء سببًا للعب محليًا: بعضها قرارٌ يخص اللاعب نفسه.
         if (message.code === 'duplicate_session' || message.code === 'protocol_mismatch') {
-          this.net.close();
+          this.net.shutdown();
           setClosingConfirmation(false);
           this.show(
             errorState(

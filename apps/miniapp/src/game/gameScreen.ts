@@ -2,6 +2,7 @@ import {
   applyKeyframe,
   buildWorld,
   placeAt,
+  reconcileLocal,
   reviveActor,
   unpackActor,
   type Actor,
@@ -54,8 +55,6 @@ export interface RoundSource {
 
 const HUD_INTERVAL_MS = 100;
 const MAX_STEPS_PER_FRAME = 5;
-/** فارق الموضع الذي يُصحَّح عنده اللاعب المحلي قفزًا بدل التنبؤ. */
-const LOCAL_SNAP_CELLS = 2.5;
 /** فارق الموضع الذي يُصحَّح عنده لاعب بعيد قفزًا. */
 const REMOTE_SNAP_CELLS = 4;
 
@@ -110,6 +109,8 @@ export class GameScreen {
   private serverRank = 1;
   private serverArea = 0;
   private eliminated = false;
+  /** true أثناء محاولة العودة بعد انقطاع — يُعرض للاعب ولا يوقف الرسم. */
+  private reconnecting = false;
 
   /** لقطة آخر حالة حيّة — لأن الأرض تُحرَّر لحظة الخروج من الجولة. */
   private snapshotArea = 0;
@@ -320,6 +321,12 @@ export class GameScreen {
       }),
       net.on('snap', (message) => {
         this.serverElapsed = message.elapsed;
+        // لو ضاعت رسالة الحالة لأي سبب، وصولُ لقطة بزمن منقضٍ يكفي دليلًا
+        // على أن الجولة انطلقت — بلا هذا يتجمّد العدّاد على الشاشة إلى الأبد.
+        if (this.state === 'COUNTDOWN' && message.elapsed > 0) {
+          this.state = 'PLAYING';
+          this.updateOverlay();
+        }
         this.applyActors(message.actors, false);
         this.applyBoard(message.lb);
       }),
@@ -333,7 +340,20 @@ export class GameScreen {
       }),
       net.on('over', (message) => this.finishFromServer(message.result)),
       net.on('error', (message) => {
-        if (message.code === 'disconnected') this.hint.textContent = 'انقطع الاتصال — جارٍ الانتظار…';
+        if (message.code === 'disconnected') {
+          this.hint.style.opacity = '1';
+          this.hint.textContent = 'انقطع الاتصال بالخادم';
+        }
+      }),
+      net.watchLink((state) => {
+        this.reconnecting = state === 'reconnecting';
+        if (state === 'reconnecting') {
+          this.hint.style.opacity = '1';
+          this.hint.textContent = 'انقطع الاتصال — جارٍ العودة…';
+        } else if (state === 'live' && this.hint.textContent?.includes('العودة')) {
+          this.hint.textContent = 'عادت الجولة';
+          this.hideHintSoon();
+        }
       }),
       net.on('room', () => {
         // عودة بعد انقطاع: الإطار المفتاحي التالي يعيد بناء الأرض كاملة.
@@ -359,15 +379,21 @@ export class GameScreen {
       }
       if (!actor.alive) reviveActor(engine, actor, state);
 
-      const drift = Math.hypot(state.x - actor.x, state.y - actor.y);
-
       if (actor.id === this.localActorId) {
         this.serverArea = state.areaPercent;
-        // التنبؤ المحلي يبقى سيّد الاستجابة ما دام قريبًا من الحقيقة.
-        if (hard || drift > LOCAL_SNAP_CELLS) placeAt(actor, state.x, state.y, state.heading);
+        // مطابقة واعية بزمن الشبكة: اللقطة تصف ماضيًا، فمقارنتها بالحاضر
+        // كما هي تخترع خطأً ليس موجودًا وتسحب اللاعب للخلف.
+        reconcileLocal(actor, state, {
+          speed: engine.config.speedCellsPerSecond,
+          latencyMs: this.net?.pingMs ?? 0,
+          // الإطار المفتاحي حقيقة كاملة: نشدّ إليه أقوى.
+          deadZone: hard ? 0.4 : undefined,
+          blend: hard ? 0.5 : undefined,
+        });
         continue;
       }
 
+      const drift = Math.hypot(state.x - actor.x, state.y - actor.y);
       if (hard || drift > REMOTE_SNAP_CELLS) placeAt(actor, state.x, state.y, state.heading);
       this.world.remotes.get(actor.id)?.setTarget(state.x, state.y, state.heading, 1, now);
     }
@@ -468,7 +494,12 @@ export class GameScreen {
       this.snapshotArea = this.serverArea;
       this.snapshotRank = this.serverRank;
       this.pingChip.textContent = '';
-      setChip(this.pingChip, 'الاتصال', this.net.pingMs > 0 ? `${this.net.pingMs}م.ث` : '…');
+      this.pingChip.classList.toggle('hud__chip--down', this.reconnecting);
+      setChip(
+        this.pingChip,
+        'الاتصال',
+        this.reconnecting ? 'يعود…' : this.net.pingMs > 0 ? `${this.net.pingMs}م.ث` : '…',
+      );
     } else if (local?.alive) {
       this.snapshotArea = engine.areaPercent(local);
       this.snapshotRank = engine.rankOf(local);

@@ -908,6 +908,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* وصلة تحاول العودة: اللاعب يرى السبب بدل أن تتجمّد اللعبة صامتة. */
+.hud__chip--down {
+  border-color: rgba(255, 180, 67, 0.55);
+  color: #ffb443;
+}
+
+.hud__chip--down span {
+  color: rgba(255, 180, 67, 0.75);
+}
+
 /* ===================== النتيجة ===================== */
 .result {
   position: absolute;

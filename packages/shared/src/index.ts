@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V11';
+export const APP_VERSION = 'V12';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -193,9 +193,11 @@ export interface MultiplayerConfig {
 export const MULTIPLAYER: MultiplayerConfig = {
   MAX_PLAYERS_PER_ROOM: 10,
   MIN_PLAYERS_TO_START: 2,
-  MATCHMAKING_TIMEOUT: 6000,
+  // ست ثوانٍ بحثًا عمّن قد لا يأتي تجعل اللعبة تبدو معطّلة قبل أن تبدأ.
+  // ثانية ونصف تكفي لالتقاط لاعب ضغط «العب» في اللحظة نفسها تقريبًا.
+  MATCHMAKING_TIMEOUT: 1500,
   BOT_FILL_ENABLED: true,
-  COUNTDOWN_MS: 3000,
+  COUNTDOWN_MS: 1000,
   RECONNECT_GRACE_MS: 30000,
   SNAPSHOT_HZ: 15,
   KEYFRAME_HZ: 0.5,
@@ -328,3 +330,9 @@ export type ServerMessage =
   | { t: 'over'; result: NetRoundResult }
   | { t: 'pong'; n: number }
   | { t: 'error'; code: string; message: string };
+
+/**
+ * حالة وصلة اللعب اللحظي كما تراها الواجهة.
+ * «يعيد الاتصال» حالة مؤقتة داخل مهلة السماح، لا انقطاعًا نهائيًا.
+ */
+export type LinkState = 'connecting' | 'live' | 'reconnecting' | 'lost';

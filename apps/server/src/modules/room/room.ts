@@ -21,6 +21,8 @@ import type { GameEvent } from '@riqaa/game-core';
 /** وصلة عميل واحد — مجرّدة عن مكتبة WebSocket كي تبقى الغرفة قابلة للاختبار. */
 export interface ClientLink {
   send(message: ServerMessage): void;
+  /** إرسال نص مُجهَّز مسبقًا — الرسالة الواحدة تُحوَّل مرة لا مرة لكل لاعب. */
+  sendRaw(text: string): void;
   close(code: string, reason: string): void;
 }
 
@@ -265,7 +267,7 @@ export class Room {
     this.keyframeClock += deltaMs;
     if (this.keyframeClock >= KEYFRAME_INTERVAL_MS) {
       this.keyframeClock = 0;
-      for (const player of this.players.values()) this.sendKeyframe(player);
+      this.broadcastKeyframe();
     }
 
     if (engine.status === 'ended' || this.roundOver()) this.setState('FINISHED');
@@ -278,9 +280,16 @@ export class Room {
       if (!player.eliminated) activeHumans++;
     }
     if (activeHumans === 0) return true;
-    let aliveActors = 0;
-    for (const actor of this.world.engine.actors) if (actor.alive) aliveActors++;
-    return aliveActors <= 1;
+
+    // البوت الميت الذي له موعد عودة ليس خارجًا من الجولة.
+    // عدُّه خارجًا كان ينهي الجولة بعد ثوانٍ من بدايتها: استحواذٌ واسع مبكّر
+    // يمحو أرض عدة بوتات دفعةً واحدة، فيبقى اللاعب وحده «واقفًا» لثوانٍ
+    // حتى تحين عودتهم — فتُعلَن نهاية الجولة بلا سبب يراه اللاعب.
+    let standing = 0;
+    for (const actor of this.world.engine.actors) {
+      if (actor.alive || actor.respawnAt >= 0) standing++;
+    }
+    return standing <= 1;
   }
 
   /**
@@ -390,13 +399,15 @@ export class Room {
 
     if (next === 'PLAYING') {
       this.broadcastSnapshot();
-      for (const player of this.players.values()) this.sendKeyframe(player);
+      this.broadcastKeyframe();
     }
     if (next === 'FINISHED') void this.settle();
   }
 
   private broadcast(message: ServerMessage): void {
-    for (const player of this.players.values()) player.link?.send(message);
+    // تحويل واحد للنص ثم إرساله كما هو للجميع.
+    const text = JSON.stringify(message);
+    for (const player of this.players.values()) player.link?.sendRaw(text);
   }
 
   private broadcastSnapshot(): void {
@@ -408,15 +419,25 @@ export class Room {
 
   private sendKeyframe(player: RoomPlayer): void {
     if (!player.link) return;
+    player.link.sendRaw(this.keyframeText());
+  }
+
+  private broadcastKeyframe(): void {
+    const text = this.keyframeText();
+    for (const player of this.players.values()) player.link?.sendRaw(text);
+  }
+
+  /** الإطار المفتاحي يُرمَّز مرة واحدة للغرفة، لا مرة لكل لاعب فيها. */
+  private keyframeText(): string {
     const engine = this.world.engine;
     const frame = encodeKeyframe(engine);
-    player.link.send({
+    return JSON.stringify({
       t: 'key',
       tick: this.tickCount,
       owner: frame.owner,
       trail: frame.trail,
       actors: engine.actors.map((actor) => packActor(actor, engine.areaPercent(actor))),
-    });
+    } satisfies ServerMessage);
   }
 
   /** لوحة الصدارة يبنيها الخادم بالكامل: الترتيب والمساحة وحالة الخروج. */

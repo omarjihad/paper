@@ -21,13 +21,20 @@ import type { ClientLink } from '../modules/room/room.js';
 /** أقصى طول رسالة مقبول من العميل — الإدخال أسطر قصيرة لا غير. */
 const MAX_MESSAGE_BYTES = 2048;
 /** فحص حيوية الوصلات. */
-const HEARTBEAT_MS = 25000;
+const HEARTBEAT_MS = 15000;
+/**
+ * كم من الصمت يعني وصلة ميتة فعلًا.
+ * المتصفح يخنق المؤقتات حين يُصغَّر التطبيق، فتتأخر نبضات العميل؛ قطعُ
+ * الوصلة عند أول نبضة فائتة يعني طرد كل من صغّر تيليجرام لحظة.
+ */
+const SILENCE_LIMIT_MS = 70000;
 
 interface Session {
   socket: WebSocket;
   link: ClientLink;
   playerId: string | null;
-  alive: boolean;
+  /** آخر إشارة حياة من هذه الوصلة: نبضة أو رسالة. */
+  lastSeen: number;
 }
 
 export interface GatewayDeps {
@@ -65,10 +72,13 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
     const session: Session = {
       socket,
       playerId: null,
-      alive: true,
+      lastSeen: Date.now(),
       link: {
         send(message: ServerMessage) {
           if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+        },
+        sendRaw(text: string) {
+          if (socket.readyState === socket.OPEN) socket.send(text);
         },
         close(code: string, reason: string) {
           session.link.send({ t: 'error', code, message: reason });
@@ -79,10 +89,11 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
     sessions.add(session);
 
     socket.on('pong', () => {
-      session.alive = true;
+      session.lastSeen = Date.now();
     });
 
     socket.on('message', (raw: unknown) => {
+      session.lastSeen = Date.now();
       let message: ClientMessage;
       try {
         message = JSON.parse(String(raw)) as ClientMessage;
@@ -209,12 +220,12 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
   }
 
   const heartbeat = setInterval(() => {
+    const now = Date.now();
     for (const session of sessions) {
-      if (!session.alive) {
+      if (now - session.lastSeen > SILENCE_LIMIT_MS) {
         session.socket.terminate();
         continue;
       }
-      session.alive = false;
       try {
         session.socket.ping();
       } catch {

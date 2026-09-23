@@ -9,3 +9,4 @@ export * from './bots/botController.js';
 export * from './match.js';
 export * from './net/codec.js';
 export * from './net/sync.js';
+export * from './net/reconcile.js';

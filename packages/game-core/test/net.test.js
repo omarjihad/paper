@@ -224,3 +224,22 @@ test('بلا لقطات لا يُستقرأ اللاعب البعيد إلى م�
   for (let i = 0; i < 30; i++) world.engine.step(config.tickSeconds);
   assert.ok(Math.hypot(remote.x - before.x, remote.y - before.y) <= 4, 'لا انطلاق عشوائي بلا بيانات');
 });
+
+
+test('البوت المنتظر عودته ليس خارجًا من الجولة', () => {
+  // هذه القاعدة هي ما تعتمد عليه الغرفة لتقرّر نهاية الجولة. عدُّ البوت
+  // الميت مؤقتًا خارجًا كان ينهي الجولة بعد ثوانٍ من بدايتها.
+  const world = buildWorld({ config, seed: 31, participants, localActorId: 1, endOnHumanDeath: false });
+  const engine = world.engine;
+
+  for (const actor of engine.actors) {
+    if (actor.kind === 'bot') engine.applyDeath(actor.id, 'wiped');
+  }
+
+  const alive = engine.actors.filter((actor) => actor.alive).length;
+  const standing = engine.actors.filter((actor) => actor.alive || actor.respawnAt >= 0).length;
+
+  assert.equal(alive, 1, 'اللاعب وحده حيّ الآن');
+  assert.equal(standing, engine.actors.length, 'لكن كل البوتات لها موعد عودة');
+  assert.ok(standing > 1, 'فلا يجوز اعتبار الجولة منتهية');
+});
