@@ -33,60 +33,76 @@
 
 - حساب Cloudflare (مجاني).
 - بوت من [@BotFather](https://t.me/BotFather) وتوكنه.
-- Node 20 أو أحدث.
 
-## 2. تسجيل الدخول
+---
+
+# الطريق الأول: الربط بـGitHub (الأسهل)
+
+في لوحة Cloudflare: **Workers & Pages ← Create ← Import a repository**، واختر
+مستودعك. الحقول تُملأ هكذا:
+
+| الحقل | القيمة |
+| --- | --- |
+| Project name | `riqaa` (أو أي اسم) |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
+
+ملف `wrangler.toml` في **جذر المستودع**، فالأوامر أعلاه تعمل كما هي بلا
+أي مسار إضافي. اضغط **Deploy**.
+
+> أول نشر سينجح لكن اللعبة سترفض الدخول برسالة واضحة عن إعدادات ناقصة —
+> هذا مقصود: الأسرار لم تُضبط بعد. أكمل الخطوة التالية.
+
+## 2. الأسرار من اللوحة
+
+في صفحة المشروع: **Settings ← Variables and Secrets ← Add**، ونوعها
+**Secret** لا Text:
+
+| الاسم | القيمة |
+| --- | --- |
+| `SESSION_SECRET` | نص عشوائي طويل تحتفظ به لنفسك |
+| `TELEGRAM_BOT_TOKEN` | التوكن من BotFather |
+
+لتوليد مفتاح جلسات قويّ من أي متصفّح (اضغط F12 ثم الصق):
+
+```js
+crypto.randomUUID() + crypto.randomUUID()
+```
+
+## 3. العنوان العام
+
+بعد أول نشر يظهر عنوان مثل `https://riqaa.<حسابك>.workers.dev`. أضفه سرًّا
+ثالثًا باسم `PUBLIC_URL` (بلا شرطة في آخره)، ثم اضغط **Retry deployment**
+أو ادفع أي تغيير إلى الفرع.
+
+العنوان مطلوب كي يسجّل البوت الـwebhook ويضع زر فتح اللعبة.
+
+---
+
+# الطريق الثاني: من جهازك
 
 ```bash
 npm install
 npx wrangler login
-```
 
-## 3. الأسرار
-
-**لا يُكتب أي سرّ في `wrangler.toml` ولا في المستودع.** تُحفظ عند Cloudflare:
-
-```bash
-cd apps/worker
-
-# مفتاح توقيع الجلسات — نص عشوائي طويل تحتفظ به لنفسك
 npx wrangler secret put SESSION_SECRET
-
-# توكن البوت من BotFather
 npx wrangler secret put TELEGRAM_BOT_TOKEN
-```
 
-لتوليد مفتاح جلسات قويّ:
-
-```bash
-node -e "console.log(crypto.randomUUID()+crypto.randomUUID())"
-```
-
-## 4. النشر الأول
-
-من جذر المشروع:
-
-```bash
 npm run worker:deploy
 ```
 
-الأمر يبني الحزم ثم الواجهة ثم ينشر العامل. في آخر المخرجات يظهر عنوان
-مثل `https://riqaa.<حسابك>.workers.dev` — انسخه.
-
-## 5. تعريف اللعبة بعنوانها
-
-العنوان مطلوب كي يسجّل البوت الـwebhook ويضع زر فتح اللعبة:
+ثم بعد ظهور العنوان:
 
 ```bash
-cd apps/worker
 npx wrangler secret put PUBLIC_URL
-# ألصق العنوان كاملًا بلا شرطة في آخره: https://riqaa.xxx.workers.dev
+npm run worker:deploy
 ```
 
-ثم انشر مرّة أخرى (`npm run worker:deploy`) وافتح `‎/api/health` في
-المتصفح. أول طلب بعد النشر يسجّل الـwebhook تلقائيًا.
+كل الأوامر من **جذر المشروع**.
 
-## 6. الربط بتيليجرام
+---
+
+## الربط بتيليجرام
 
 1. في BotFather: `/newapp` واختر بوتك، ثم ضع عنوان اللعبة.
 2. أو `/setmenubutton` لوضع زر دائم في المحادثة.
@@ -119,10 +135,8 @@ curl https://<عنوانك>/api/health
 ## التشغيل محليًا
 
 ```bash
-npm run build          # الواجهة يجب أن تُبنى أولًا
-cd apps/worker
 cp .dev.vars.example .dev.vars   # ثم اضبط القيم داخله
-npx wrangler dev
+npm run worker:dev
 ```
 
 `.dev.vars` مستثنى من Git ولا يُرفع أبدًا.
@@ -133,13 +147,13 @@ npx wrangler dev
 
 | المتغيّر | أين يُضبط | الغرض |
 | --- | --- | --- |
-| `SESSION_SECRET` | سرّ | توقيع رموز الجلسات — **مطلوب** |
-| `TELEGRAM_BOT_TOKEN` | سرّ | التحقق من هوية اللاعبين — **مطلوب** |
-| `PUBLIC_URL` | سرّ | عنوان اللعبة العام، لازم للبوت والـwebhook |
+| `SESSION_SECRET` | سرّ (اللوحة أو `wrangler secret put`) | توقيع رموز الجلسات — **مطلوب** |
+| `TELEGRAM_BOT_TOKEN` | سرّ (اللوحة أو `wrangler secret put`) | التحقق من هوية اللاعبين — **مطلوب** |
+| `PUBLIC_URL` | سرّ (اللوحة أو `wrangler secret put`) | عنوان اللعبة العام، لازم للبوت والـwebhook |
 | `TELEGRAM_WEBHOOK_SECRET` | سرّ (اختياري) | يُشتق من `SESSION_SECRET` إن تُرك |
-| `SERVER_REGION` | `wrangler.toml` | المنطقة المعلنة للاعبين |
-| `DO_LOCATION_HINT` | `wrangler.toml` | أين يُنشأ خادم اللعب — يُقرأ مرّة واحدة |
-| `DEV_ALLOW_GUEST` | `wrangler.toml` | دخول بلا تيليجرام — **يبقى `false`** في الإنتاج |
+| `SERVER_REGION` | `wrangler.toml` في الجذر | المنطقة المعلنة للاعبين |
+| `DO_LOCATION_HINT` | `wrangler.toml` في الجذر | أين يُنشأ خادم اللعب — يُقرأ مرّة واحدة |
+| `DEV_ALLOW_GUEST` | `wrangler.toml` في الجذر | دخول بلا تيليجرام — **يبقى `false`** في الإنتاج |
 
 ---
 

@@ -1,12 +1,12 @@
 name = "riqaa"
-main = "src/index.ts"
+main = "apps/worker/src/index.ts"
 compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat"]
 
 # ملفّات الواجهة تُقدَّم من حافة الشبكة مباشرةً، وأي مسار غير معروف يعيد
 # صفحة اللعبة لأنها تطبيق صفحة واحدة.
 [assets]
-directory = "../miniapp/dist"
+directory = "apps/miniapp/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 

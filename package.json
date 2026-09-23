@@ -24,7 +24,10 @@
     "start": "npm run start -w @riqaa/server",
     "typecheck": "npm run build:packages && npm run typecheck -w @riqaa/server && npm run typecheck -w @riqaa/miniapp && npm run typecheck -w @riqaa/worker",
     "test": "npm run test -w @riqaa/game-core && npm run test -w @riqaa/server-core",
-    "worker:dev": "npm run dev -w @riqaa/worker",
-    "worker:deploy": "npm run build:packages && npm run build -w @riqaa/miniapp && npm run deploy -w @riqaa/worker"
+    "worker:dev": "npm run build:packages && npm run build -w @riqaa/miniapp && wrangler dev",
+    "worker:deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.137.0"
   }
 }
