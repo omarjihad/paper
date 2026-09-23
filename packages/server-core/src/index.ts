@@ -14,4 +14,8 @@ export * from './players/memory.repository.js';
 export * from './room/regions.js';
 export * from './room/room.js';
 export * from './room/roomManager.js';
+export * from './bot/telegram.api.js';
+export * from './bot/bot.service.js';
+export * from './api/config.js';
+export * from './api/authService.js';
 export * from './realtime/router.js';

@@ -1,0 +1,6 @@
+# نسخة محلية فقط — انسخها إلى .dev.vars ولا ترفعها إلى المستودع أبدًا.
+# في الإنتاج تُضبط هذه القيم بـ:  npx wrangler secret put <الاسم>
+SESSION_SECRET=غيّرها-إلى-قيمة-عشوائية-طويلة
+TELEGRAM_BOT_TOKEN=
+# دخول الضيف وسيلة تطوير فقط — اتركه false في الإنتاج.
+DEV_ALLOW_GUEST=true

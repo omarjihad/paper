@@ -1,6 +1,6 @@
 import { timingSafeEqual, utf8 } from '@riqaa/server-core';
 import type { FastifyInstance } from 'fastify';
-import type { TelegramBot, TelegramUpdate } from './bot.service.js';
+import type { TelegramBot, TelegramUpdate } from '@riqaa/server-core';
 
 export interface BotDeps {
   bot: TelegramBot | null;

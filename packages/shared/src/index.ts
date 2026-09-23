@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V15';
+export const APP_VERSION = 'V16';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -421,6 +421,8 @@ export type ClientMessage =
   | { t: 'start' }
   | { t: 'input'; h: number; r: number }
   | { t: 'ping'; n: number }
+  /** ردّ على نبضة الخادم — منه يقيس الخادم زمن الوصلة بنفسه. */
+  | { t: 'pong'; n: number }
   | { t: 'leave' };
 
 export type ServerMessage =
@@ -439,6 +441,14 @@ export type ServerMessage =
   | { t: 'events'; items: NetEvent[]; feed: NetFeedItem[] }
   | { t: 'over'; result: NetRoundResult }
   | { t: 'pong'; n: number }
+  /**
+   * نبضة يبدأها الخادم ويردّ عليها العميل فورًا.
+   *
+   * القياس على مستوى التطبيق لا على مستوى المقبس: إطارات ping/pong في
+   * WebSocket غير متاحة لكود Cloudflare Workers، ولو تُرك القياس لكل وقت
+   * تشغيل لتفرّقا. هذا القياس حقيقي من الخادم، لا رقم يرسله العميل عن نفسه.
+   */
+  | { t: 'ping'; n: number }
   | { t: 'error'; code: string; message: string };
 
 /**

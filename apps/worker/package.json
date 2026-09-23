@@ -1,0 +1,21 @@
+{
+  "name": "@riqaa/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@riqaa/game-core": "*",
+    "@riqaa/server-core": "*",
+    "@riqaa/shared": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.137.0"
+  }
+}

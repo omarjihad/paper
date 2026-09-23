@@ -141,6 +141,11 @@ export class RealtimeClient {
           return;
         }
 
+        // نبضة الخادم: نردّ فورًا بالرقم نفسه كي يقيس هو زمن الوصلة.
+        if (message.t === 'ping') {
+          this.send({ t: 'pong', n: message.n });
+          return;
+        }
         if (message.t === 'pong') {
           const sample = Math.max(0, Math.round(performance.now() - message.n));
           // متوسط متحرّك: رقم مستقر بلا قفزات، ومقاس فعلًا لا مُفترَض.

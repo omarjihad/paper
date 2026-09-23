@@ -35,6 +35,15 @@ npm start       # خادم واحد على المنفذ 3000 يقدّم الـAP
 
 ---
 
+## النشر
+
+| الاستضافة | الملف | متى تختارها |
+| --- | --- | --- |
+| **Cloudflare Workers** | [`DEPLOY-CLOUDFLARE.md`](DEPLOY-CLOUDFLARE.md) | الأقرب للاعبين في المنطقة، وخطتها المجانية تكفي |
+| Render | `render.yaml` | خادم Node تقليدي بضغطة واحدة |
+
+---
+
 ## الربط بتيليجرام
 
 1. أنشئ بوتًا من [@BotFather](https://t.me/BotFather) واحصل على التوكن.

@@ -10,7 +10,7 @@ import { AppError } from '@riqaa/server-core';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
 import { registerBotRoutes } from './modules/bot/bot.routes.js';
 import { registerClientErrorRoute } from './modules/diagnostics/client-error.routes.js';
-import type { TelegramBot } from './modules/bot/bot.service.js';
+import type { TelegramBot } from '@riqaa/server-core';
 import { registerMatchRoutes } from './modules/match/match.routes.js';
 import { MatchService } from './modules/match/match.service.js';
 

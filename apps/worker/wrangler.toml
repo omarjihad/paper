@@ -1,0 +1,32 @@
+name = "riqaa"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# ملفّات الواجهة تُقدَّم من حافة الشبكة مباشرةً، وأي مسار غير معروف يعيد
+# صفحة اللعبة لأنها تطبيق صفحة واحدة.
+[assets]
+directory = "../miniapp/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[durable_objects.bindings]]
+name = "GAME"
+class_name = "GameServer"
+
+# التخزين على SQLite — وهو الشكل المتاح في الخطة المجانية.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameServer"]
+
+[vars]
+# المنطقة المعروضة للاعبين: ما نستضيف منه فعلًا، لا اسمًا مخترعًا.
+SERVER_REGION = "me"
+# أقرب موقع يُطلب من Cloudflare إنشاء الكائن فيه: الشرق الأوسط.
+DO_LOCATION_HINT = "me"
+INIT_DATA_MAX_AGE = "86400"
+DEV_ALLOW_GUEST = "false"
+
+# الأسرار تُضبط بـ`wrangler secret put` ولا تُكتب في هذا الملف أبدًا:
+#   SESSION_SECRET، TELEGRAM_BOT_TOKEN، TELEGRAM_WEBHOOK_SECRET (اختياري)
+# وPUBLIC_URL يُضبط بعد معرفة عنوان النشر.

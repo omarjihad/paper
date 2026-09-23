@@ -5,3 +5,7 @@ dist/
 *.log
 .DS_Store
 .vite/
+
+# أسرار wrangler المحلية — لا تُرفع أبدًا
+.dev.vars
+.wrangler/

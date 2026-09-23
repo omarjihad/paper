@@ -19,7 +19,28 @@ export interface ProtocolSession {
   readonly link: ClientLink;
   /** يُملأ بعد تحقق ناجح من رمز الجلسة، ولا يُقرأ من رسالة العميل أبدًا. */
   playerId: string | null;
+  /** آخر إشارة حياة من هذه الوصلة. */
+  lastSeen: number;
+  /** متى أُرسلت آخر نبضة، لقياس زمن الذهاب والإياب من الرد عليها. */
+  pingAt: number;
+  /** متوسط متحرّك لزمن الاستجابة كما قاسه الخادم. */
+  rtt: number;
+  /** قطع الوصلة فورًا — الطريقة تختلف بين ws و WebSocketPair. */
+  terminate(): void;
 }
+
+/**
+ * فحص حيوية الوصلات وقياس زمنها.
+ * النبضة هنا ليست للحياة فقط: منها يُشتق زمن الاستجابة الذي يقرّر حصة
+ * اللاعب من اللقطات، فيجب أن تكون متقاربة بما يكفي ليواكب القرارُ الشبكةَ.
+ */
+export const HEARTBEAT_MS = 4000;
+/**
+ * كم من الصمت يعني وصلة ميتة فعلًا.
+ * المتصفح يخنق المؤقتات حين يُصغَّر التطبيق، فتتأخر نبضات العميل؛ قطعُ
+ * الوصلة عند أول نبضة فائتة يعني طرد كل من صغّر تيليجرام لحظة.
+ */
+export const SILENCE_LIMIT_MS = 70000;
 
 export interface RouterDeps {
   sessionSecret: string;
@@ -43,11 +64,34 @@ export interface RouterDeps {
 export class ProtocolRouter {
   /** وصلة واحدة فقط لكل لاعب — تمنع الجلسات المكرّرة. */
   private readonly byPlayer = new Map<string, ProtocolSession>();
+  private readonly sessions = new Set<ProtocolSession>();
 
   constructor(private readonly deps: RouterDeps) {}
 
+  /** تُستدعى فور فتح المقبس، قبل أي رسالة. */
+  open(session: ProtocolSession): void {
+    this.sessions.add(session);
+  }
+
+  /**
+   * نبضة دورية على كل الوصلات: تقطع الميتة، وتقيس زمن الحيّة.
+   * يقودها كل وقت تشغيل بمؤقّته الخاص، والمنطق واحد للجميع.
+   */
+  heartbeat(): void {
+    const now = Date.now();
+    for (const session of this.sessions) {
+      if (now - session.lastSeen > SILENCE_LIMIT_MS) {
+        session.terminate();
+        continue;
+      }
+      session.pingAt = now;
+      session.link.send({ t: 'ping', n: now });
+    }
+  }
+
   /** نصّ خام وصل من العميل. يعيد الخطأ عبر السجلّ لا عبر الاستثناء. */
   async handleRaw(session: ProtocolSession, raw: string): Promise<void> {
+    session.lastSeen = Date.now();
     let message: ClientMessage;
     try {
       message = JSON.parse(raw) as ClientMessage;
@@ -69,6 +113,9 @@ export class ProtocolRouter {
       case 'ping':
         // قياس زمن حقيقي: العميل يوقّت الذهاب والإياب بنفسه.
         session.link.send({ t: 'pong', n: message.n });
+        return;
+      case 'pong':
+        this.recordRtt(session, message.n);
         return;
       default:
         break;
@@ -122,8 +169,22 @@ export class ProtocolRouter {
     }
   }
 
+  /**
+   * زمن الذهاب والإياب كما قاسه الخادم من نبضته هو.
+   * نتجاهل أي ردّ لا يطابق النبضة الأخيرة كي لا يستطيع عميلٌ أن يدّعي
+   * زمنًا أفضل من الحقيقة فيأخذ حصةً أكبر من اللقطات.
+   */
+  private recordRtt(session: ProtocolSession, echoed: number): void {
+    if (session.pingAt === 0 || echoed !== session.pingAt) return;
+    const sample = Math.max(0, Date.now() - session.pingAt);
+    session.pingAt = 0;
+    // متوسط متحرّك: قرار التخفيف يجب ألّا يتأرجح مع كل قفزة عابرة.
+    session.rtt = session.rtt === 0 ? sample : Math.round(session.rtt * 0.7 + sample * 0.3);
+  }
+
   /** تُستدعى عند إغلاق المقبس مهما كان سببه. */
   disconnect(session: ProtocolSession): void {
+    this.sessions.delete(session);
     const playerId = session.playerId;
     if (!playerId) return;
     if (this.byPlayer.get(playerId) === session) this.byPlayer.delete(playerId);

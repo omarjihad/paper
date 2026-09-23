@@ -2,8 +2,8 @@ import { APP_VERSION } from '@riqaa/shared';
 import { buildApp } from './app.js';
 import { assertProductionConfig, loadEnv, type Env } from './core/env.js';
 import { createPlayerRepository } from './infra/repository.factory.js';
-import { TelegramBot } from './modules/bot/bot.service.js';
-import { TelegramApi } from './modules/bot/telegram.api.js';
+import { TelegramBot } from '@riqaa/server-core';
+import { TelegramApi } from '@riqaa/server-core';
 
 /** مسار الـwebhook — ثابت ومعروف للطرفين. */
 const WEBHOOK_PATH = '/api/telegram/webhook';

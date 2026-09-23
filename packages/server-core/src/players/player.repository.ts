@@ -9,11 +9,11 @@ export interface UpsertPlayerInput {
 }
 
 /**
- * عقد تخزين اللاعبين. الطبقة الأعلى لا تعرف إن كان التخزين مونغو أم ذاكرة —
- * لذلك تبديل قاعدة البيانات لاحقًا لا يمس منطق اللعبة.
+ * عقد تخزين اللاعبين. الطبقة الأعلى لا تعرف إن كان التخزين مونغو أم ذاكرة
+ * أم تخزين Durable Object — لذلك تبديل قاعدة البيانات لا يمس منطق اللعبة.
  */
 export interface PlayerRepository {
-  readonly kind: 'mongodb' | 'memory';
+  readonly kind: 'mongodb' | 'memory' | 'durable';
   upsertOnLogin(input: UpsertPlayerInput): Promise<PlayerProfile>;
   findById(telegramId: string): Promise<PlayerProfile | null>;
   touch(telegramId: string): Promise<void>;
