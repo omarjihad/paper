@@ -56,6 +56,32 @@ export class Renderer {
    */
   private inset = { left: 0, bottom: 0 };
 
+  /**
+   * مشاركان يُبرزان ويُخفت ما عداهما.
+   * تستعمله إعادة الموت: اللاعب لا يميّز خطّه من خطوط ثمانية آخرين، فإن
+   * لم نُبرز الخطّين المعنيّين لم تُفد الإعادة شيئًا.
+   */
+  spotlight: readonly number[] | null = null;
+
+  /** إزاحة الكاميرا وقياسها في آخر إطار — لرسم الأوسمة فوق المشهد. */
+  private lastOffsetX = 0;
+  private lastOffsetY = 0;
+  private lastCell = 1;
+
+  /** يحوّل إحداثيات العالم إلى إحداثيات الشاشة بآخر وضع كاميرا. */
+  project(x: number, y: number): { x: number; y: number } {
+    return { x: this.lastOffsetX + x * this.lastCell, y: this.lastOffsetY + y * this.lastCell };
+  }
+
+  /** حجم الخلية على الشاشة الآن. */
+  get cellSize(): number {
+    return this.lastCell;
+  }
+
+  private dimmed(actorId: number): boolean {
+    return this.spotlight !== null && !this.spotlight.includes(actorId);
+  }
+
   private readonly chrome: boolean;
   private readonly visibleCells: number;
 
@@ -118,6 +144,9 @@ export class Renderer {
 
     const offsetX = this.width / 2 - this.cameraX * cell;
     const offsetY = this.height / 2 - this.cameraY * cell;
+    this.lastOffsetX = offsetX;
+    this.lastOffsetY = offsetY;
+    this.lastCell = cell;
 
     ctx.fillStyle = '#0a0f18';
     ctx.fillRect(0, 0, this.width, this.height);
@@ -256,6 +285,7 @@ export class Renderer {
 
     for (const actor of this.engine.actors) {
       if (!actor.alive || actor.trail.length === 0) continue;
+      ctx.globalAlpha = this.dimmed(actor.id) ? 0.22 : 1;
       ctx.fillStyle = this.trailColor[actor.id] ?? '#ffffff';
       for (let i = 0; i < actor.trail.length; i++) {
         const index = actor.trail[i];
@@ -266,6 +296,7 @@ export class Renderer {
         ctx.fillRect(offsetX + x * cell, offsetY + y * cell, cell + 0.5, cell + 0.5);
       }
     }
+    ctx.globalAlpha = 1;
   }
 
   private drawActors(offsetX: number, offsetY: number, cell: number): void {
@@ -275,6 +306,7 @@ export class Renderer {
 
     for (const actor of engine.actors) {
       if (!actor.alive) continue;
+      ctx.globalAlpha = this.dimmed(actor.id) ? 0.28 : 1;
       // الموضع الآن مركز اللاعب لا ركن خليته.
       const px = offsetX + engine.renderX(actor) * cell - head / 2;
       const py = offsetY + engine.renderY(actor) * cell - head / 2;
@@ -293,6 +325,7 @@ export class Renderer {
       ctx.lineWidth = Math.max(1, head * 0.12);
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
   }
 
   private drawBorder(offsetX: number, offsetY: number, worldW: number, worldH: number): void {

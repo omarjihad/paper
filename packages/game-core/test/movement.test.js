@@ -150,3 +150,91 @@ test('التفاف حاد مسموح، وقطع مسار قديم يقتل', () 
   run(cross.engine, 1.2);
   assert.equal(cross.actor.alive, false, 'قطع المسار القديم يجب أن يقتل');
 });
+
+// ---------------------------------------------------------- الحركة على الحدّ
+
+/** يضع اللاعب عند نقطة محدّدة بأرض نظيفة تحته، ثم يدفعه باتجاه ثابت. */
+function pushFrom(startX, startY, heading, seconds = 2) {
+  const engine = new GameEngine({ config, seed: 7, authoritative: true, endOnHumanDeath: false });
+  const actor = engine.addParticipant({ id: 1, kind: 'human', name: 'لاعب', colorIndex: 0 });
+  const controller = new HumanController(1);
+  engine.setController(1, controller);
+
+  engine.grid.owner.fill(0);
+  engine.grid.trail.fill(0);
+  actor.x = startX;
+  actor.y = startY;
+  actor.cx = Math.floor(startX);
+  actor.cy = Math.floor(startY);
+  actor.trail.length = 0;
+  actor.outside = false;
+  actor.wallSlide = Number.NaN;
+  for (let y = actor.cy - 2; y <= actor.cy + 2; y++) {
+    for (let x = actor.cx - 2; x <= actor.cx + 2; x++) {
+      if (engine.inBounds(x, y)) engine.grid.owner[y * engine.width + x] = 1;
+    }
+  }
+  actor.exitCell = engine.grid.index(actor.cx, actor.cy);
+
+  const from = { x: actor.x, y: actor.y };
+  const steps = Math.round(seconds / config.tickSeconds);
+  for (let i = 0; i < steps; i++) {
+    controller.setIntent(heading, 1);
+    engine.step(config.tickSeconds);
+  }
+  return { actor, travelled: Math.hypot(actor.x - from.x, actor.y - from.y) };
+}
+
+const FULL = config.speedCellsPerSecond * 2;
+const W = config.gridWidth;
+/** منتصف الجدار: بعيد عن الزاويتين فلا يلتقي بحدٍّ ثانٍ أثناء القياس. */
+const MID = config.gridWidth / 2;
+
+test('الدفع في الحائط ينزلق بمحاذاته بدل أن يتجمّد', () => {
+  // قبل الانزلاق كان هذا يتحرّك 0.6 خلية من أصل 15: يتسمّر اللاعب عند
+  // الحافّة بلا سبب ظاهر، وهو ما يراه «تقطّعًا» في اللعبة.
+  for (const [label, x, y, heading] of [
+    ['الحائط الأيسر', 0.6, MID, Math.PI],
+    ['الحائط الأيمن', W - 0.6, MID, 0],
+    ['الحائط العلوي', MID, 0.6, -Math.PI / 2],
+    ['الحائط السفلي', MID, W - 0.6, Math.PI / 2],
+  ]) {
+    const { travelled } = pushFrom(x, y, heading);
+    assert.ok(travelled > FULL * 0.9, `${label}: تحرّك ${travelled.toFixed(2)} من أصل ${FULL}`);
+  }
+});
+
+test('الميل الطفيف عن الحائط لا يُبطئ اللاعب', () => {
+  // وهذا كان يزحف بـ26٪ من سرعته: يفقد كل مركّبة عمودية على الجدار.
+  const { travelled } = pushFrom(0.6, MID, Math.PI - 0.26);
+  assert.ok(travelled > FULL * 0.9, `تحرّك ${travelled.toFixed(2)} من أصل ${FULL}`);
+});
+
+test('الزاوية لا تحبس اللاعب', () => {
+  const { travelled } = pushFrom(0.6, 0.6, Math.PI + Math.PI / 4);
+  assert.ok(travelled > FULL * 0.8, `تحرّك ${travelled.toFixed(2)} من أصل ${FULL}`);
+});
+
+test('اتجاه الانزلاق ثابت فلا يذبذب اللاعب في مكانه', () => {
+  // بلا ذاكرة الاتجاه ينقلب الترجيح كل نبضة عند منتصف الجدار بالضبط،
+  // فيروح اللاعب ويجيء بين نفس الخليتين إلى الأبد.
+  const { actor } = pushFrom(0.6, MID, Math.PI, 3);
+  assert.ok(Math.abs(actor.y - MID) > 15, `ابتعد ${Math.abs(actor.y - MID).toFixed(2)} خلية عن نقطة الملامسة`);
+});
+
+test('مغادرة الحدّ تُنسي الانزلاق', () => {
+  const engine = new GameEngine({ config, seed: 3, authoritative: true, endOnHumanDeath: false });
+  const actor = engine.addParticipant({ id: 1, kind: 'human', name: 'لاعب', colorIndex: 0 });
+  const controller = new HumanController(1);
+  engine.setController(1, controller);
+  actor.x = 0.05;
+  actor.y = MID;
+  actor.cx = 0;
+  actor.cy = MID;
+  controller.setIntent(Math.PI, 1);
+  engine.step(config.tickSeconds);
+  assert.ok(Number.isFinite(actor.wallSlide), 'يجب أن يُسجَّل الانزلاق عند الملامسة');
+  controller.setIntent(0, 1);
+  engine.step(config.tickSeconds);
+  assert.ok(!Number.isFinite(actor.wallSlide), 'ويُنسى فور الابتعاد');
+});

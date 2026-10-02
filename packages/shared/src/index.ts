@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V18';
+export const APP_VERSION = 'V19';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -272,6 +272,22 @@ export const LINK_GRADE_LABEL: Record<LinkGrade, string> = {
   fair: 'متوسط',
   weak: 'ضعيف',
 };
+
+/**
+ * وصف زمن الاتصال كما يُعرض للاعب.
+ *
+ * عتبات `gradeLink` مضبوطة لقرار تخفيف اللقطات، وهي خشنة عمدًا: كل ما دون
+ * 180 م.ث يُعامَل معاملةً واحدة لأن الفرق لا يغيّر قرار الخادم. لكن عرضها
+ * للاعب بالوصف نفسه يعني أن نقول لمن زمنُه 169 م.ث إن اتصاله «ممتاز» —
+ * وهو ليس كذلك، ويلمس ذلك بيده. هنا مقياس أدقّ للعرض وحده.
+ */
+export function pingLabel(rttMs: number): string {
+  if (rttMs <= 0) return '—';
+  if (rttMs < 80) return 'ممتاز';
+  if (rttMs < 150) return 'جيد';
+  if (rttMs < 260) return 'متوسط';
+  return 'ضعيف';
+}
 
 /** آلة حالات الجولة. الخادم هو المرجع، والواجهة تتفاعل فقط. */
 export type MatchState = 'WAITING' | 'MATCHMAKING' | 'COUNTDOWN' | 'PLAYING' | 'FINISHED';

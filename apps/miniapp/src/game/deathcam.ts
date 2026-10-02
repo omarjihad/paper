@@ -107,6 +107,9 @@ export interface DeathReplay {
   killerActorId: number | null;
   killerName: string | null;
   cause: DeathCause;
+  /** مكان القطع كما قرّره الخادم. */
+  x: number;
+  y: number;
   colorOf: (actorId: number) => string;
 }
 
@@ -128,6 +131,7 @@ export class DeathCam {
   private readonly stage: GameEngine;
   private readonly renderer: Renderer;
   private readonly idle = { active: false, originX: 0, originY: 0, knobX: 0, knobY: 0 };
+  private readonly ctx: CanvasRenderingContext2D;
 
   private replay: DeathReplay | null = null;
   private tape: { base: Uint8Array; frames: Frame[] } | null = null;
@@ -156,6 +160,9 @@ export class DeathCam {
     // الأرض التي وزّعها البناء تُمحى: كل خلية ستأتي من التسجيل.
     this.stage.grid.owner.fill(0);
     this.renderer = new Renderer(canvas, this.stage, { chrome: false, visibleCells: REPLAY_VIEW_CELLS });
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('تعذّر إنشاء سياق الرسم');
+    this.ctx = context;
 
     this.title = h('div', { class: 'cam__title' });
     this.reason = h('div', { class: 'cam__reason' });
@@ -199,6 +206,11 @@ export class DeathCam {
 
     // الكاميرا تتبع من خرج، لا من تتبعه الجولة.
     this.stage.focusActorId = replay.victimActorId;
+    // الخطّان المعنيّان وحدهما بكامل وضوحهما، وما عداهما يخفت.
+    this.renderer.spotlight =
+      replay.killerActorId === null
+        ? [replay.victimActorId]
+        : [replay.victimActorId, replay.killerActorId];
 
     this.element.removeAttribute('hidden');
     this.renderer.resize();
@@ -255,6 +267,77 @@ export class DeathCam {
     const dt = Math.min((now - this.lastDraw) / 1000, 0.1);
     this.lastDraw = now;
     this.renderer.draw(this.idle, dt);
+    this.drawMarks(now);
+  }
+
+  /**
+   * الأوسمة فوق المشهد.
+   *
+   * الإعادة وحدها لا تكفي: عشرة خطوط بألوان متقاربة على شاشة هاتف، فلا
+   * يعرف اللاعب أيّها خطّه ولا من قطعه. هنا يُكتب على خطّه «خطك» وعلى
+   * خصمه اسمه، وتُحلَّق نقطة القطع — فيرى بعينه ما جرى لا يخمّنه.
+   */
+  private drawMarks(now: number): void {
+    const replay = this.replay;
+    if (!replay) return;
+    const ctx = this.ctx;
+    const victim = this.stage.actorById(replay.victimActorId);
+    const killer = replay.killerActorId === null ? null : this.stage.actorById(replay.killerActorId);
+
+    if (victim) {
+      const anchor = this.trailAnchor(victim) ?? { x: victim.x, y: victim.y };
+      this.tag(anchor.x, anchor.y, 'خطك', replay.colorOf(victim.id), true);
+    }
+    if (killer && killer.alive) {
+      this.tag(killer.x, killer.y, replay.killerName ?? 'الخصم', replay.colorOf(killer.id), false);
+    }
+
+    // نقطة القطع: حلقة نابضة باسم من قطع.
+    // الحلقة وحدها تقول «هنا» ولا تقول «من»، والخصم قد يكون خارج الكادر
+    // في هذه اللحظة من التسجيل — فاسمه يُكتب على الحلقة نفسها.
+    if (replay.killerActorId !== null) {
+      const p = this.renderer.project(replay.x, replay.y);
+      const pulse = 0.5 + 0.5 * Math.sin(now / 260);
+      const r = this.renderer.cellSize * (0.9 + pulse * 0.7);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,96,96,${0.45 + pulse * 0.45})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      this.tag(replay.x, replay.y, `${replay.killerName ?? 'الخصم'} قطعه هنا`, '#ff7a7a', true);
+    }
+  }
+
+  /** منتصف المسار المرئي — أوضح مكان لوسم «خطك». */
+  private trailAnchor(actor: Actor): { x: number; y: number } | null {
+    if (actor.trail.length === 0) return null;
+    const index = actor.trail[Math.floor(actor.trail.length / 2)];
+    const width = this.stage.width;
+    return { x: (index % width) + 0.5, y: Math.floor(index / width) + 0.5 };
+  }
+
+  /** وسم نصّي بقرص خلفه كي يُقرأ فوق أي لون. */
+  private tag(worldX: number, worldY: number, text: string, color: string, below: boolean): void {
+    const ctx = this.ctx;
+    const p = this.renderer.project(worldX, worldY);
+    ctx.save();
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const width = ctx.measureText(text).width + 18;
+    const height = 22;
+    const y = p.y + (below ? 26 : -26);
+    ctx.fillStyle = 'rgba(8,12,20,0.82)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    roundedBox(ctx, p.x - width / 2, y - height / 2, width, height, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillText(text, p.x, y + 0.5);
+    ctx.restore();
   }
 
   /** يضع المحرك الصامت على حالة اللقطة رقم `index` بالضبط. */
@@ -291,4 +374,22 @@ export class DeathCam {
       for (let t = 0; t < trail.length; t++) actor.trail.push(trail[t]);
     }
   }
+}
+
+/** مستطيل بزوايا مستديرة — نرسمه بأنفسنا لأن roundRect غير متاح في كل متصفّح. */
+function roundedBox(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
 }

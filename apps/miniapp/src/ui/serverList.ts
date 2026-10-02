@@ -1,5 +1,5 @@
 import {
-  LINK_GRADE_LABEL,
+  pingLabel,
   gradeLink,
   type LobbyServer,
   type RegionId,
@@ -68,7 +68,7 @@ export function serverListScreen(options: {
   const paintPing = (): void => {
     const grade = gradeLink(ping);
     pingTag.className = `sv__ping sv__ping--${grade}`;
-    pingTag.textContent = ping > 0 ? `${LINK_GRADE_LABEL[grade]} · ${ping}م.ث` : '…';
+    pingTag.textContent = ping > 0 ? `${pingLabel(ping)} · ${ping}م.ث` : '…';
   };
   paintPing();
 

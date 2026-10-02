@@ -12,7 +12,7 @@ import {
 import {
   ACTOR_COLORS,
   KILL_REWARD_COINS,
-  LINK_GRADE_LABEL,
+  pingLabel,
   gradeLink,
   type MatchConfig,
   type MatchParticipant,
@@ -338,6 +338,8 @@ export class GameScreen {
         this.openDeathCam(
           event.cause,
           blame && blame.victimId === this.localActorId ? blame.killerId : null,
+          blame?.x ?? this.world.local?.x ?? 0,
+          blame?.y ?? this.world.local?.y ?? 0,
         );
       } else if (event.type === 'kill') {
         this.lastKill = { killerId: event.killerId, victimId: event.victimId, x: event.x, y: event.y };
@@ -469,7 +471,12 @@ export class GameScreen {
           this.hint.style.opacity = '1';
           this.hint.textContent = 'خرجت من الجولة — بانتظار النتيجة';
           // الحكم من الخادم، والصورة من تسجيل الجهاز.
-          this.openDeathCam(cause, event.killerActorId === null ? null : Number(event.killerActorId));
+          this.openDeathCam(
+            cause,
+            event.killerActorId === null ? null : Number(event.killerActorId),
+            Number(event.x),
+            Number(event.y),
+          );
         }
         return;
       }
@@ -536,7 +543,7 @@ export class GameScreen {
    * ليست رسمًا مبسّطًا للحدث: هي آخر ثوانٍ من الجولة نفسها تُعاد مبطّأةً
    * بالراسم نفسه — رجوعٌ بالزمن لا رسمٌ يشبهه.
    */
-  private openDeathCam(cause: DeathCause, killerActorId: number | null): void {
+  private openDeathCam(cause: DeathCause, killerActorId: number | null, x: number, y: number): void {
     const engine = this.world.engine;
     const tape = this.recorder.take();
     if (!tape) return;
@@ -547,6 +554,8 @@ export class GameScreen {
       killerActorId: killer ? killer.id : null,
       killerName: killer ? killer.name : null,
       cause,
+      x,
+      y,
       colorOf: (id) => ACTOR_COLORS[(engine.actorById(id)?.colorIndex ?? 0) % ACTOR_COLORS.length],
     };
     this.camOpen = true;
@@ -605,7 +614,7 @@ export class GameScreen {
       this.pingChip.classList.toggle('hud__chip--down', this.reconnecting || grade === 'weak');
       setChip(
         this.pingChip,
-        this.reconnecting ? 'الاتصال' : LINK_GRADE_LABEL[grade],
+        this.reconnecting ? 'الاتصال' : pingLabel(this.net.pingMs),
         this.reconnecting ? 'يعود…' : this.net.pingMs > 0 ? `${this.net.pingMs}م.ث` : '…',
       );
     } else if (local?.alive) {

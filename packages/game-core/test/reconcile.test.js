@@ -45,6 +45,11 @@ function simulate({ rttMs, steering, reconcile, seconds = 10 }) {
     const theirs = server.engine.actorById(1);
     if (!mine.alive || !theirs.alive || !state.alive) break;
 
+    // ملاصقة الحدّ ليست سيرًا في أرض مفتوحة: هناك ينزلق الطرفان على
+    // الجدار من لحظتين مختلفتين بفارق نصف رحلة، فتصحيحٌ واحد سلوك سليم
+    // لا انحراف. نقيس ما قُصد قياسه: الحركة الحرّة بعيدًا عن الحافّة.
+    if (Number.isFinite(mine.wallSlide) || Number.isFinite(theirs.wallSlide)) continue;
+
     const before = { x: mine.x, y: mine.y, heading: mine.heading };
 
     if (reconcile) {

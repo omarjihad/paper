@@ -162,6 +162,7 @@ export class GameEngine implements WorldView {
       trail: [],
       outside: false,
       exitCell: 0,
+      wallSlide: Number.NaN,
       area: 0,
       kills: 0,
       deaths: 0,
@@ -279,14 +280,80 @@ export class GameEngine implements WorldView {
     if (distance <= 0) return;
 
     const grid = this.grid;
-    const targetX = clamp(actor.x + Math.cos(actor.heading) * distance, EDGE, grid.width - EDGE);
-    const targetY = clamp(actor.y + Math.sin(actor.heading) * distance, EDGE, grid.height - EDGE);
+    const minX = EDGE;
+    const maxX = grid.width - EDGE;
+    const minY = EDGE;
+    const maxY = grid.height - EDGE;
+
+    let vx = Math.cos(actor.heading) * distance;
+    let vy = Math.sin(actor.heading) * distance;
+    const blockedX = actor.x + vx < minX || actor.x + vx > maxX;
+    const blockedY = actor.y + vy < minY || actor.y + vy > maxY;
+
+    /**
+     * الانزلاق على الحدّ.
+     *
+     * كان الموضع يُقصّ على الحافّة فحسب، ومعنى ذلك أن من يدفع نحو الجدار
+     * يفقد مركّبة سرعته العمودية عليه: ملتصقًا به يتجمّد تمامًا، وبميل
+     * خمس عشرة درجة يزحف بربع سرعته. وهذا ما يراه اللاعب «تقطّعًا» —
+     * شخصيّته تتسمّر عند الحافّة بلا سبب ظاهر ولا حيلة.
+     *
+     * الآن تتحوّل السرعة كاملةً إلى محاذاة الجدار، ويدور اتجاه الرأس معها
+     * كي يرى اللاعب إلى أين يمضي.
+     */
+    if (blockedX || blockedY) {
+      const slide = this.slideAlongEdge(actor, minX, maxX, minY, maxY);
+      actor.wallSlide = slide;
+      actor.heading = slide;
+      actor.dir = headingToDir(slide);
+      vx = Math.cos(slide) * distance;
+      vy = Math.sin(slide) * distance;
+    } else {
+      actor.wallSlide = Number.NaN;
+    }
+
+    const targetX = clamp(actor.x + vx, minX, maxX);
+    const targetY = clamp(actor.y + vy, minY, maxY);
 
     this.traverse(actor, actor.x, actor.y, targetX, targetY);
     if (!actor.alive) return;
 
     actor.x = targetX;
     actor.y = targetY;
+  }
+
+  /**
+   * الاتجاه الذي ينزلق به اللاعب على الحدّ.
+   *
+   * من الاتجاهات الأربعة نستبعد ما لا متّسع فيه، ثم نختار الأقرب إلى ما
+   * يريده اللاعب. والاختيار السابق يُعاد استعماله ما دام فيه متّسع: بلا
+   * هذا الثبات يتأرجح اللاعب بين أعلى وأسفل عند منتصف الجدار بالضبط،
+   * لأن المسافة إلى الطرفين تكاد تتساوى فينقلب الترجيح كل نبضة.
+   */
+  private slideAlongEdge(actor: Actor, minX: number, maxX: number, minY: number, maxY: number): number {
+    const room = (heading: number): number => {
+      if (heading === 0) return maxX - actor.x;
+      if (heading === Math.PI) return actor.x - minX;
+      if (heading > 0) return maxY - actor.y;
+      return actor.y - minY;
+    };
+    const ROOM_EPS = 1e-3;
+
+    if (Number.isFinite(actor.wallSlide) && room(actor.wallSlide) > ROOM_EPS) return actor.wallSlide;
+
+    let best = actor.heading;
+    let bestScore = -Infinity;
+    for (const option of [0, Math.PI, HALF_PI, -HALF_PI]) {
+      const free = room(option);
+      if (free <= ROOM_EPS) continue;
+      // الأقرب إلى نيّة اللاعب أولًا، ثم الأوسع متّسعًا عند التعادل.
+      const score = Math.cos(option - actor.heading) * 1000 + free;
+      if (score > bestScore) {
+        bestScore = score;
+        best = option;
+      }
+    }
+    return best;
   }
 
   /**
