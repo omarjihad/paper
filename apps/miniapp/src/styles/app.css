@@ -1061,36 +1061,60 @@ body {
 }
 
 /* ===================== إعادة لقطة الخروج ===================== */
+/* ------------------------------------------------------------ إعادة الموت
+   ليست شاشة أخرى: الملعب نفسه يرجع بالزمن، وهذه طبقة رقيقة فوقه تقول
+   ماذا نشاهد ومتى نخرج منه. لذلك لا خلفية تحجب ولا تمويه. */
 .cam {
   position: absolute;
   inset: 0;
   display: grid;
-  place-items: center;
-  background: rgba(6, 10, 17, 0.72);
-  backdrop-filter: blur(6px);
+  grid-template-rows: auto 1fr auto;
   z-index: 5;
-  padding: 14px;
+  pointer-events: none;
+  animation: cam-in 200ms ease;
 }
 
 .cam[hidden] {
   display: none;
 }
 
-.cam__card {
-  width: min(360px, 92vw);
+.cam__top {
+  grid-row: 1;
   display: grid;
-  gap: 10px;
   justify-items: center;
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(14, 20, 32, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  animation: cam-in 220ms ease;
+  align-content: start;
+  gap: 2px;
+  padding: calc(10px + var(--tg-safe-top, 0px)) 14px 0;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+
+.cam__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: #0a0f18;
+  background: var(--accent);
+}
+
+/* السهمان ينبضان كشريط يُرجَع — إشارة أن ما نراه ماضٍ لا حاضر. */
+.cam__rew {
+  animation: cam-rew 900ms ease-in-out infinite;
+}
+
+@keyframes cam-rew {
+  50% {
+    opacity: 0.35;
+    transform: translateX(-2px);
+  }
 }
 
 .cam__title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   color: #e9eef6;
   text-align: center;
@@ -1100,27 +1124,58 @@ body {
   font-weight: 900;
 }
 
-/* مربّع الإعادة: نسبة ثابتة كي لا يقفز التخطيط قبل أول رسم. */
-.cam__canvas {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  max-height: 46vh;
-  border-radius: 14px;
-  background: #0a0f18;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  display: block;
-}
-
 .cam__reason {
-  font-size: 13px;
-  color: #8fa0b8;
+  font-size: 12.5px;
+  color: #c3cedd;
   text-align: center;
 }
 
+/* الصفّ الثالث صراحةً: بلا تحديده يقع الشريط في الصفّ المطّاط الأوسط
+   فيتمدّد الزرّ على نصف الشاشة. */
+.cam__bottom {
+  grid-row: 3;
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: 9px;
+  padding: 0 16px calc(12px + var(--tg-safe-bottom, 0px));
+}
+
+.cam__bar {
+  width: min(320px, 70vw);
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.cam__bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 .cam__close {
+  pointer-events: auto;
   width: auto;
-  padding: 9px 26px;
+  justify-self: center;
+  align-self: end;
+  padding: 9px 30px;
   font-size: 14px;
+  background: rgba(14, 20, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* شريط اللعب ولوحة الصدارة يخفتان أثناء الإعادة كي لا يختلط رقمُ الحاضر
+   بمشهد الماضي. */
+.game--replay .hud,
+.game--replay .lb,
+.game--replay .feed,
+.game--replay .hint {
+  opacity: 0.18;
+  transition: opacity 180ms ease;
 }
 
 @keyframes cam-in {
@@ -1130,38 +1185,6 @@ body {
   }
 }
 
-/* وضع العرض: الشاشة قصيرة، فالبطاقة تصير صفّين لا عمودًا واحدًا. */
-:root[data-layout='landscape'] .cam__card {
-  width: min(560px, 94vw);
-  grid-template-columns: auto 1fr;
-  grid-template-areas:
-    'canvas title'
-    'canvas reason'
-    'canvas close';
-  align-content: center;
-  gap: 8px 16px;
-  padding: 12px 16px;
-}
-
-:root[data-layout='landscape'] .cam__canvas {
-  grid-area: canvas;
-  width: 40vh;
-  max-height: 72vh;
-}
-
-:root[data-layout='landscape'] .cam__title {
-  grid-area: title;
-  align-self: end;
-}
-
-:root[data-layout='landscape'] .cam__reason {
-  grid-area: reason;
-}
-
-:root[data-layout='landscape'] .cam__close {
-  grid-area: close;
-  align-self: start;
-}
 
 /* ===================== النتيجة ===================== */
 .result {

@@ -16,6 +16,7 @@ import {
   gradeLink,
   type MatchConfig,
   type MatchParticipant,
+  type NetBoardRow,
   type DeathCause,
   type MatchState,
   type NetActor,
@@ -91,7 +92,7 @@ export class GameScreen {
   private readonly leaderboard = new Leaderboard();
   private readonly feed = new EliminationFeed();
   private readonly recorder: DeathRecorder;
-  private readonly deathCam = new DeathCam();
+  private readonly deathCam: DeathCam;
   private readonly leaderRows: LeaderRow[] = [];
 
   private stopViewportWatch: (() => void) | null = null;
@@ -178,6 +179,9 @@ export class GameScreen {
     );
 
     this.recorder = new DeathRecorder(this.world.engine);
+    // إعادة العرض تُبنى بنفس الإعداد والمشاركين، فتخرج صورةً طبق الأصل.
+    this.deathCam = new DeathCam(this.canvas, this.world.engine.config, source.participants, source.seed);
+    this.rememberIdentities(source.participants);
 
     this.element = h('div', { class: 'screen game' }, [
       this.canvas,
@@ -262,6 +266,7 @@ export class GameScreen {
 
   private onResize = (): void => {
     this.renderer.resize();
+    this.deathCam.resize();
   };
 
   private pushIntent(heading: number, throttle: number): void {
@@ -292,8 +297,15 @@ export class GameScreen {
     }
 
     this.consumeEvents();
-    this.recorder.sample(delta);
-    this.renderer.draw(this.input.joystick, delta);
+
+    // أثناء الإعادة يبقى العالم يتقدّم في الخلفية — الجولة لم تتوقّف لأحد —
+    // لكن ما يُرسم على الملعب هو الماضي: الملعب نفسه رجع بالزمن.
+    if (this.camOpen) {
+      this.deathCam.tick(time);
+    } else {
+      this.recorder.sample(delta);
+      this.renderer.draw(this.input.joystick, delta);
+    }
 
     if (time - this.hudClock >= HUD_INTERVAL_MS) {
       this.hudClock = time;
@@ -326,8 +338,6 @@ export class GameScreen {
         this.openDeathCam(
           event.cause,
           blame && blame.victimId === this.localActorId ? blame.killerId : null,
-          blame?.x ?? this.world.local?.x ?? 0,
-          blame?.y ?? this.world.local?.y ?? 0,
         );
       } else if (event.type === 'kill') {
         this.lastKill = { killerId: event.killerId, victimId: event.victimId, x: event.x, y: event.y };
@@ -385,7 +395,9 @@ export class GameScreen {
           this.hideHintSoon();
         }
       }),
-      net.on('room', () => {
+      net.on('room', (message) => {
+        // مقعد سُلّم للاعب جديد: أسماء الصدارة تأتي من هنا لا من كل لقطة.
+        this.rememberIdentities(message.room.participants);
         // عودة بعد انقطاع: الإطار المفتاحي التالي يعيد بناء الأرض كاملة.
         this.hint.textContent = 'عادت الجولة';
         this.hideHintSoon();
@@ -457,12 +469,7 @@ export class GameScreen {
           this.hint.style.opacity = '1';
           this.hint.textContent = 'خرجت من الجولة — بانتظار النتيجة';
           // الحكم من الخادم، والصورة من تسجيل الجهاز.
-          this.openDeathCam(
-            cause,
-            event.killerActorId === null ? null : Number(event.killerActorId),
-            Number(event.x),
-            Number(event.y),
-          );
+          this.openDeathCam(cause, event.killerActorId === null ? null : Number(event.killerActorId));
         }
         return;
       }
@@ -479,51 +486,76 @@ export class GameScreen {
     }
   }
 
-  private applyBoard(rows: readonly { actorId: number; name: string; colorIndex: number; areaPercent: number; eliminated: boolean; avatarUrl: string | null }[]): void {
+  /**
+   * لوحة الصدارة من صفوف اللقطة المضغوطة.
+   * المتغيّر وحده يصل في اللقطة (المشارك، مساحته، خروجه)، والهوية — الاسم
+   * واللون والصورة — معروفة أصلًا من وصف الغرفة. فلا تُعاد خمس عشرة مرة
+   * في الثانية على وصلة الهاتف بلا سبب.
+   */
+  private applyBoard(rows: readonly NetBoardRow[]): void {
     const board: LeaderRow[] = [];
     for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const isHuman = row.actorId === this.localActorId;
+      const [actorId, areaX100, eliminated] = rows[i];
+      const identity = this.identities.get(actorId);
+      const isHuman = actorId === this.localActorId;
+      const area = areaX100 / 100;
       if (isHuman) {
         this.serverRank = i + 1;
-        this.serverArea = row.areaPercent;
+        this.serverArea = area;
       }
       board.push({
         rank: i + 1,
-        name: row.name,
-        area: row.areaPercent,
-        color: ACTOR_COLORS[row.colorIndex % ACTOR_COLORS.length],
+        name: identity?.name ?? '—',
+        area,
+        color: ACTOR_COLORS[(identity?.colorIndex ?? 0) % ACTOR_COLORS.length],
         isHuman,
-        eliminated: row.eliminated,
-        avatarUrl: isHuman ? this.avatarUrl : row.avatarUrl,
+        eliminated: eliminated === 1,
+        avatarUrl: isHuman ? this.avatarUrl : (identity?.avatarUrl ?? null),
       });
     }
     this.serverBoard = board;
   }
 
+  /** هوية كل مشارك كما أعلنها الخادم في وصف الغرفة. */
+  private readonly identities = new Map<number, { name: string; colorIndex: number; avatarUrl: string | null }>();
+
+  private rememberIdentities(participants: readonly MatchParticipant[]): void {
+    for (const participant of participants) {
+      this.identities.set(participant.actorId, {
+        name: participant.name,
+        colorIndex: participant.colorIndex,
+        avatarUrl: participant.kind === 'human' ? (participant.avatarUrl ?? null) : null,
+      });
+    }
+  }
+
   // -------------------------------------------------------------- العرض
 
-  /** يعرض للاعب كيف خرج من الجولة: آخر ثوانٍ مبطّأةً حول نقطة الحدث. */
-  private openDeathCam(cause: DeathCause, killerActorId: number | null, x: number, y: number): void {
+  /**
+   * يعرض للاعب كيف خرج من الجولة.
+   * ليست رسمًا مبسّطًا للحدث: هي آخر ثوانٍ من الجولة نفسها تُعاد مبطّأةً
+   * بالراسم نفسه — رجوعٌ بالزمن لا رسمٌ يشبهه.
+   */
+  private openDeathCam(cause: DeathCause, killerActorId: number | null): void {
     const engine = this.world.engine;
-    const frames = this.recorder.snapshot();
-    if (frames.length < 2) return;
+    const tape = this.recorder.take();
+    if (!tape) return;
 
     const killer = killerActorId === null ? null : engine.actorById(killerActorId);
     const replay: DeathReplay = {
       victimActorId: this.localActorId,
       killerActorId: killer ? killer.id : null,
-      victimName: engine.actorById(this.localActorId)?.name ?? 'أنت',
       killerName: killer ? killer.name : null,
       cause,
-      x,
-      y,
-      frames,
       colorOf: (id) => ACTOR_COLORS[(engine.actorById(id)?.colorIndex ?? 0) % ACTOR_COLORS.length],
     };
     this.camOpen = true;
-    this.deathCam.show(replay, () => {
+    this.element.classList.add('game--replay');
+    this.deathCam.show(replay, tape, () => {
       this.camOpen = false;
+      this.element.classList.remove('game--replay');
+      this.renderer.resize();
+      this.renderer.snapCamera();
       this.hint.textContent = this.net ? 'خرجت من الجولة — بانتظار النتيجة' : 'انتهت جولتك';
       const held = this.heldResult;
       this.heldResult = null;

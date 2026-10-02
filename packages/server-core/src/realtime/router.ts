@@ -1,5 +1,6 @@
 import {
   APP_VERSION,
+  MULTIPLAYER,
   NET_PROTOCOL_VERSION,
   type ClientMessage,
   type RegionId,
@@ -41,6 +42,22 @@ export const HEARTBEAT_MS = 4000;
  * الوصلة عند أول نبضة فائتة يعني طرد كل من صغّر تيليجرام لحظة.
  */
 export const SILENCE_LIMIT_MS = 70000;
+
+/**
+ * هل اختنقت هذه الوصلة؟
+ *
+ * قياسٌ واحد لكل أوقات التشغيل: workerd لا يطبّق bufferedAmount إطلاقًا،
+ * فلو تُرك لكلٍّ أن يقيس بطريقته لظنّ عاملُ Cloudflare أن كل الوصلات
+ * سليمة — وضخَّ على وصلة الهاتف الضعيفة بأقصى معدّل حتى تُقطع.
+ *
+ * الإشارة الأصدق تأتي من الطرف الآخر: الخادم ينبض كل أربع ثوانٍ والعميل
+ * يردّ فورًا. نبضةٌ لم يُردّ عليها خلال دورة كاملة تعني أن الطابور بينهما
+ * امتلأ. والصمت التامّ احتياطٌ ثانٍ لمن انقطع ردُّه أصلًا.
+ */
+export function congested(session: ProtocolSession, now = Date.now()): boolean {
+  if (session.pingAt > 0 && now - session.pingAt > HEARTBEAT_MS) return true;
+  return now - session.lastSeen > MULTIPLAYER.SATURATION_SILENCE_MS;
+}
 
 export interface RouterDeps {
   sessionSecret: string;

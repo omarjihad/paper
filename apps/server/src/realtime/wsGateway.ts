@@ -4,6 +4,7 @@ import { MULTIPLAYER, REALTIME_PATH, type RegionId, type ServerMessage } from '@
 import {
   HEARTBEAT_MS,
   ProtocolRouter,
+  congested,
   type ClientLink,
   type PlayerRepository,
   type ProtocolSession,
@@ -63,7 +64,9 @@ export function attachRealtime(server: Server, deps: GatewayDeps): () => void {
         return session.rtt;
       },
       saturated() {
-        return socket.bufferedAmount > MULTIPLAYER.SEND_BUFFER_LIMIT;
+        // مؤشّران: طابور الإرسال المحلي، وتأخّر ردّ العميل. الثاني وحده
+        // متاح على Cloudflare، فنعتمده هنا أيضًا ليتطابق السلوك.
+        return socket.bufferedAmount > MULTIPLAYER.SEND_BUFFER_LIMIT || congested(session);
       },
       close(code: string, reason: string) {
         link.send({ t: 'error', code, message: reason });

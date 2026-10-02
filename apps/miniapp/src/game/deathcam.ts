@@ -1,36 +1,60 @@
-import type { GameEngine } from '@riqaa/game-core';
-import { DEATH_CAUSE_TEXT, type DeathCause } from '@riqaa/shared';
+import { GameEngine, type Actor } from '@riqaa/game-core';
+import { DEATH_CAUSE_TEXT, type DeathCause, type MatchConfig, type MatchParticipant } from '@riqaa/shared';
 import { h } from '../ui/dom.js';
+import { Renderer } from './renderer.js';
 
 /** كم ثانية من الماضي تُحفظ للإعادة. */
-const HISTORY_SECONDS = 3.5;
-/** عدد اللقطات في الثانية داخل المسجّل — تكفي لخط سلس بلا ذاكرة تُذكر. */
-const RECORD_HZ = 20;
+const HISTORY_SECONDS = 4;
+/** عدد اللقطات في الثانية داخل المسجّل. */
+const RECORD_HZ = 30;
 const MAX_FRAMES = Math.ceil(HISTORY_SECONDS * RECORD_HZ);
-/** سرعة الإعادة: نصف السرعة كي تُرى لحظة القطع. */
-const PLAYBACK_RATE = 0.5;
-/** أقل وأكثر عدد خلايا يظهر في الإطار — حدّان يمنعان تقريبًا مبالغًا أو بعيدًا. */
-const MIN_VIEW_CELLS = 12;
-const MAX_VIEW_CELLS = 44;
+/** سرعة الإعادة: أبطأ من اللعب كي تُرى لحظة القطع. */
+const PLAYBACK_RATE = 0.55;
+/** وقفة بعد نهاية المشهد قبل إعادته. */
+const LOOP_PAUSE_MS = 1100;
+/**
+ * مستوى التقريب: **نفس اللعب تمامًا**.
+ * توسيع المشهد كان يجعل الإعادة تبدو خريطةً لا جولة، واللاعب طلب أن يرى
+ * ما رآه لحظتها بالضبط لا مشهدًا آخر يشبهه.
+ */
+const REPLAY_VIEW_CELLS = 30;
 
+/**
+ * لقطة واحدة من الماضي.
+ *
+ * الأرض تُحفظ فروقًا لا صورًا كاملة: الشبكة 150×150 لا تتغيّر إلا عند
+ * استحواذ أو خروج، فحفظ نسخة منها ثلاثين مرة في الثانية يعني ميغابايتات
+ * تُخصَّص وتُجمَع أثناء اللعب — وهذا وحده يصنع التقطّع الذي نحاربه.
+ */
 interface Frame {
   t: number;
-  /** [id, x, y, alive] لكل مشارك. */
-  actors: Float32Array;
+  /** [x, y, heading, alive] لكل مشارك بترتيب المشاركين. */
+  state: Float32Array;
+  /** مسار كل مشارك (فهارس خلايا) — منه يُرسم الخط كما في اللعبة. */
+  trails: Int32Array[];
+  /** أزواج (فهرس، مالك جديد) تنقل الأرض من اللقطة السابقة إلى هذه. */
+  ownerChanges: Int32Array;
 }
 
 /**
  * مسجّل آخر ثوانٍ من الجولة.
  *
- * يعمل على الجهاز لا على الشبكة: المواضع معروضة أصلًا على الشاشة، فحفظها
- * لا يكلّف حزمة واحدة. الخادم يرسل الحكم فقط (من أخرجك وأين ولماذا)،
- * والجهاز يعيد رسم ما رآه — فالحقيقة من الخادم والصورة من عندنا.
+ * يعمل على الجهاز لا على الشبكة: ما يُسجَّل هو ما رآه اللاعب على شاشته،
+ * فحفظه لا يكلّف حزمة واحدة. الخادم يرسل الحكم فقط (من أخرجك وأين
+ * ولماذا)، والجهاز يعيد عرض ما رآه — فالحقيقة من الخادم والصورة من هنا.
  */
 export class DeathRecorder {
   private readonly frames: Frame[] = [];
+  /** الأرض كما كانت عند أقدم لقطة محفوظة — نقطة انطلاق الإعادة. */
+  private base: Uint8Array;
+  /** آخر حالة أرض قيست، لاشتقاق الفروق منها. */
+  private previous: Uint8Array;
   private clock = 0;
 
-  constructor(private readonly engine: GameEngine) {}
+  constructor(private readonly engine: GameEngine) {
+    this.base = engine.grid.owner.slice();
+    this.previous = engine.grid.owner.slice();
+  }
 
   /** يُستدعى كل إطار رسم؛ يأخذ عيّنة بمعدل ثابت لا بمعدل الإطارات. */
   sample(dt: number): void {
@@ -38,73 +62,115 @@ export class DeathRecorder {
     if (this.clock < 1 / RECORD_HZ) return;
     this.clock = 0;
 
-    const actors = this.engine.actors;
-    const data = new Float32Array(actors.length * 4);
+    const engine = this.engine;
+    const actors = engine.actors;
+    const state = new Float32Array(actors.length * 4);
+    const trails: Int32Array[] = [];
     for (let i = 0; i < actors.length; i++) {
       const actor = actors[i];
-      data[i * 4] = actor.id;
-      data[i * 4 + 1] = actor.x;
-      data[i * 4 + 2] = actor.y;
-      data[i * 4 + 3] = actor.alive ? 1 : 0;
+      state[i * 4] = actor.x;
+      state[i * 4 + 1] = actor.y;
+      state[i * 4 + 2] = actor.heading;
+      state[i * 4 + 3] = actor.alive ? 1 : 0;
+      trails.push(Int32Array.from(actor.trail));
     }
-    this.frames.push({ t: performance.now(), actors: data });
-    while (this.frames.length > MAX_FRAMES) this.frames.shift();
+
+    const owner = engine.grid.owner;
+    const previous = this.previous;
+    const changed: number[] = [];
+    for (let i = 0; i < owner.length; i++) {
+      if (owner[i] === previous[i]) continue;
+      changed.push(i, owner[i]);
+      previous[i] = owner[i];
+    }
+
+    this.frames.push({ t: performance.now(), state, trails, ownerChanges: Int32Array.from(changed) });
+
+    // اللقطة الخارجة تُطوى في الأساس كي تبقى نقطة الانطلاق صحيحة.
+    while (this.frames.length > MAX_FRAMES) {
+      const dropped = this.frames.shift();
+      if (!dropped) break;
+      const changes = dropped.ownerChanges;
+      for (let i = 0; i < changes.length; i += 2) this.base[changes[i]] = changes[i + 1];
+    }
   }
 
-  /** نسخة مجمّدة من الشريط الحالي. */
-  snapshot(): Frame[] {
-    return this.frames.map((frame) => ({ t: frame.t, actors: frame.actors.slice() }));
+  /** الشريط الحالي كما هو — يُستهلك فورًا ولا يُحتفظ به. */
+  take(): { base: Uint8Array; frames: Frame[] } | null {
+    if (this.frames.length < 4) return null;
+    return { base: this.base.slice(), frames: this.frames.slice() };
   }
-}
-
-interface View {
-  cell: number;
-  offsetX: number;
-  offsetY: number;
 }
 
 export interface DeathReplay {
   victimActorId: number;
   killerActorId: number | null;
-  victimName: string;
   killerName: string | null;
   cause: DeathCause;
-  x: number;
-  y: number;
-  frames: Frame[];
   colorOf: (actorId: number) => string;
 }
 
 /**
  * شاشة «كيف خرجتُ من الجولة».
- * تعيد آخر ثوانٍ مبطّأةً حول نقطة الحدث: مسارك، ومسار من قطعه، ونقطة
- * التقائهما. الغرض أن يرى اللاعب بعينه أنه لم يُظلم.
+ *
+ * ليست رسمًا مبسّطًا للحدث: هي اللعبة نفسها تُعاد. تُبنى نسخة صامتة من
+ * المحرك ويُركَّب عليها **الراسم نفسه** الذي يرسم الجولة، ثم تُكتب فيها
+ * لقطات الماضي واحدةً واحدة. فما يراه اللاعب في الإعادة هو ما رآه لحظتها
+ * بالضبط — نفس الألوان ونفس الأرض ونفس الخطوط — لا رسمًا آخر يشبهه.
  */
 export class DeathCam {
   readonly element: HTMLElement;
-  private readonly canvas: HTMLCanvasElement;
-  private readonly ctx: CanvasRenderingContext2D;
   private readonly title: HTMLElement;
   private readonly reason: HTMLElement;
+  private readonly progress: HTMLElement;
+
+  /** محرك صامت لا يُشغَّل أبدًا: يُكتب فيه الماضي ويُقرأ منه الرسم. */
+  private readonly stage: GameEngine;
+  private readonly renderer: Renderer;
+  private readonly idle = { active: false, originX: 0, originY: 0, knobX: 0, knobY: 0 };
+
   private replay: DeathReplay | null = null;
-  private frameHandle = 0;
+  private tape: { base: Uint8Array; frames: Frame[] } | null = null;
+  private cursor = -1;
   private startedAt = 0;
-  private dpr = 1;
+  private lastDraw = 0;
   private onClose: (() => void) | null = null;
 
-  constructor() {
-    this.canvas = h('canvas', { class: 'cam__canvas' });
-    const context = this.canvas.getContext('2d');
-    if (!context) throw new Error('تعذّر إنشاء سياق الرسم');
-    this.ctx = context;
+  constructor(
+    /** لوحة اللعبة نفسها: الإعادة تحدث هنا لا في شاشة أخرى. */
+    private readonly canvas: HTMLCanvasElement,
+    config: MatchConfig,
+    participants: readonly MatchParticipant[],
+    seed: number,
+  ) {
+    this.stage = new GameEngine({ config, seed, authoritative: false, endOnHumanDeath: false });
+    for (const participant of participants) {
+      this.stage.addParticipant({
+        id: participant.actorId,
+        kind: participant.kind,
+        name: participant.name,
+        colorIndex: participant.colorIndex,
+        difficulty: participant.kind === 'bot' ? participant.difficulty : null,
+      });
+    }
+    // الأرض التي وزّعها البناء تُمحى: كل خلية ستأتي من التسجيل.
+    this.stage.grid.owner.fill(0);
+    this.renderer = new Renderer(canvas, this.stage, { chrome: false, visibleCells: REPLAY_VIEW_CELLS });
 
     this.title = h('div', { class: 'cam__title' });
     this.reason = h('div', { class: 'cam__reason' });
+    this.progress = h('div', { class: 'cam__bar' }, [h('i', { class: 'cam__bar-fill' })]);
+
+    // طبقة رقيقة فوق الملعب لا بطاقة تحجبه: الملعب هو المشهد، وهذه
+    // الطبقة تقول فقط ماذا نشاهد ومتى نخرج منه.
     this.element = h('div', { class: 'cam', hidden: 'hidden' }, [
-      h('div', { class: 'cam__card' }, [
+      h('div', { class: 'cam__top' }, [
+        h('div', { class: 'cam__badge' }, [h('span', { class: 'cam__rew', text: '◀◀' }), h('span', { text: 'إعادة' })]),
         this.title,
-        this.canvas,
         this.reason,
+      ]),
+      h('div', { class: 'cam__bottom' }, [
+        this.progress,
         h(
           'button',
           { class: 'btn btn--ghost cam__close', type: 'button', onclick: () => this.close() },
@@ -114,9 +180,11 @@ export class DeathCam {
     ]);
   }
 
-  show(replay: DeathReplay, onClose: () => void): void {
+  show(replay: DeathReplay, tape: { base: Uint8Array; frames: Frame[] }, onClose: () => void): void {
     this.replay = replay;
+    this.tape = tape;
     this.onClose = onClose;
+    this.cursor = -1;
 
     if (replay.killerName) {
       this.title.textContent = '';
@@ -129,206 +197,98 @@ export class DeathCam {
     }
     this.reason.textContent = DEATH_CAUSE_TEXT[replay.cause];
 
+    // الكاميرا تتبع من خرج، لا من تتبعه الجولة.
+    this.stage.focusActorId = replay.victimActorId;
+
     this.element.removeAttribute('hidden');
-    this.resize();
+    this.renderer.resize();
+    this.renderer.snapCamera();
     this.startedAt = performance.now();
-    cancelAnimationFrame(this.frameHandle);
-    this.frameHandle = requestAnimationFrame(this.frame);
+    this.lastDraw = this.startedAt;
+  }
+
+  /** هل الإعادة جارية الآن؟ */
+  get active(): boolean {
+    return this.tape !== null;
   }
 
   close(): void {
-    cancelAnimationFrame(this.frameHandle);
-    this.frameHandle = 0;
     this.element.setAttribute('hidden', 'hidden');
     this.replay = null;
+    this.tape = null;
     const handler = this.onClose;
     this.onClose = null;
     handler?.();
   }
 
   destroy(): void {
-    cancelAnimationFrame(this.frameHandle);
     this.element.remove();
   }
 
-  private resize(): void {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const width = Math.max(1, this.canvas.offsetWidth);
-    const height = Math.max(1, this.canvas.offsetHeight);
-    this.canvas.width = Math.round(width * this.dpr);
-    this.canvas.height = Math.round(height * this.dpr);
-    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+  resize(): void {
+    if (this.tape) this.renderer.resize();
   }
-
-  private frame = (now: number): void => {
-    const replay = this.replay;
-    if (!replay) return;
-    this.frameHandle = requestAnimationFrame(this.frame);
-
-    const frames = replay.frames;
-    if (frames.length < 2) return;
-
-    const span = frames[frames.length - 1].t - frames[0].t;
-    const elapsed = (now - this.startedAt) * PLAYBACK_RATE;
-    // وقفة قصيرة عند لحظة القطع ثم إعادة الكرّة.
-    const cycle = span + 1400;
-    const cursor = Math.min(span, elapsed % cycle);
-    this.draw(replay, frames[0].t + cursor);
-  };
 
   /**
-   * يؤطّر المشهد على الخطّين المعنيين لا على نقطة الحدث وحدها.
-   * تثبيتُ تقريبٍ واحد يجعل المسارين خطّين قصيرين في زاوية بينما تملأ
-   * الشاشةَ رحلاتُ من لا علاقة لهم بالحدث.
+   * تُقاد من حلقة رسم اللعبة نفسها لا من حلقة خاصة بها: الإعادة ليست شاشةً
+   * أخرى لها دورتها، بل هي الملعب نفسه وقد رجع بالزمن.
    */
-  private frameView(replay: DeathReplay, width: number, height: number): View {
-    let minX = replay.x;
-    let maxX = replay.x;
-    let minY = replay.y;
-    let maxY = replay.y;
+  tick(now: number): void {
+    const tape = this.tape;
+    if (!tape) return;
 
-    const slots = this.focusSlots(replay);
-    for (const frame of replay.frames) {
-      for (const slot of slots) {
-        if (frame.actors[slot * 4 + 3] === 0) continue;
-        const x = frame.actors[slot * 4 + 1];
-        const y = frame.actors[slot * 4 + 2];
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
+    const frames = tape.frames;
+    const span = frames[frames.length - 1].t - frames[0].t;
+    if (span <= 0) return;
 
-    const span = Math.max(maxX - minX, maxY - minY) + 6;
-    const cells = Math.min(MAX_VIEW_CELLS, Math.max(MIN_VIEW_CELLS, span));
-    const cell = Math.min(width, height) / cells;
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    return { cell, offsetX: width / 2 - centerX * cell, offsetY: height / 2 - centerY * cell };
+    const cycle = span / PLAYBACK_RATE + LOOP_PAUSE_MS;
+    const position = (now - this.startedAt) % cycle;
+    const target = frames[0].t + Math.min(span, position * PLAYBACK_RATE);
+
+    let index = 0;
+    while (index + 1 < frames.length && frames[index + 1].t <= target) index++;
+
+    this.seek(tape, index);
+    (this.progress.firstElementChild as HTMLElement).style.width =
+      `${Math.round(((target - frames[0].t) / span) * 100)}%`;
+
+    const dt = Math.min((now - this.lastDraw) / 1000, 0.1);
+    this.lastDraw = now;
+    this.renderer.draw(this.idle, dt);
   }
 
-  private focusSlots(replay: DeathReplay): number[] {
-    const focus = new Set<number>([replay.victimActorId]);
-    if (replay.killerActorId !== null) focus.add(replay.killerActorId);
-    const slots: number[] = [];
-    const count = replay.frames[0].actors.length / 4;
-    for (let slot = 0; slot < count; slot++) {
-      if (focus.has(replay.frames[0].actors[slot * 4])) slots.push(slot);
+  /** يضع المحرك الصامت على حالة اللقطة رقم `index` بالضبط. */
+  private seek(tape: { base: Uint8Array; frames: Frame[] }, index: number): void {
+    if (index === this.cursor) return;
+    const owner = this.stage.grid.owner;
+
+    // أول عرض أو رجوعٌ للخلف: نبدأ من الأساس ثم نتقدّم إليه.
+    // بلا شرط البداية تبقى الأرض فارغة تمامًا فلا يرى اللاعب إلا خطًّا
+    // معلّقًا في العدم — وهو أبعد ما يكون عن «مثل اللعبة بالضبط».
+    if (index <= this.cursor || this.cursor < 0) {
+      owner.set(tape.base);
+      this.cursor = -1;
+      this.renderer.snapCamera();
     }
-    return slots;
-  }
-
-  private draw(replay: DeathReplay, until: number): void {
-    const { ctx } = this;
-    const width = this.canvas.width / this.dpr;
-    const height = this.canvas.height / this.dpr;
-    const { cell, offsetX, offsetY } = this.frameView(replay, width, height);
-
-    ctx.fillStyle = '#0a0f18';
-    ctx.fillRect(0, 0, width, height);
-
-    // شبكة خفيفة تعطي إحساس المسافة.
-    if (cell >= 4) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let px = offsetX % cell; px < width; px += cell) {
-        ctx.moveTo(Math.round(px) + 0.5, 0);
-        ctx.lineTo(Math.round(px) + 0.5, height);
-      }
-      for (let py = offsetY % cell; py < height; py += cell) {
-        ctx.moveTo(0, Math.round(py) + 0.5);
-        ctx.lineTo(width, Math.round(py) + 0.5);
-      }
-      ctx.stroke();
+    for (let i = this.cursor + 1; i <= index; i++) {
+      const changes = tape.frames[i].ownerChanges;
+      for (let c = 0; c < changes.length; c += 2) owner[changes[c]] = changes[c + 1];
     }
+    this.cursor = index;
 
-    const focus = new Set<number>([replay.victimActorId]);
-    if (replay.killerActorId !== null) focus.add(replay.killerActorId);
-
-    const count = replay.frames[0].actors.length / 4;
-    const labels: { x: number; y: number; text: string; color: string }[] = [];
-
-    // البقية تُرسم أولًا وباهتة كي لا تزاحم الخطّين المعنيين.
-    for (const pass of [false, true]) {
-      for (let slot = 0; slot < count; slot++) {
-        const id = replay.frames[0].actors[slot * 4];
-        const isFocus = focus.has(id);
-        if (isFocus !== pass) continue;
-
-        ctx.strokeStyle = replay.colorOf(id);
-        ctx.globalAlpha = isFocus ? 1 : 0.14;
-        ctx.lineWidth = isFocus ? 4.5 : 1.5;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-
-        let started = false;
-        let headX = 0;
-        let headY = 0;
-        for (const frame of replay.frames) {
-          if (frame.t > until) break;
-          if (frame.actors[slot * 4 + 3] === 0) continue;
-          const px = offsetX + frame.actors[slot * 4 + 1] * cell;
-          const py = offsetY + frame.actors[slot * 4 + 2] * cell;
-          if (started) ctx.lineTo(px, py);
-          else {
-            ctx.moveTo(px, py);
-            started = true;
-          }
-          headX = px;
-          headY = py;
-        }
-        if (!started) {
-          ctx.globalAlpha = 1;
-          continue;
-        }
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-
-        ctx.fillStyle = replay.colorOf(id);
-        const size = isFocus ? cell * 1.1 : cell * 0.6;
-        ctx.fillRect(headX - size / 2, headY - size / 2, size, size);
-        if (isFocus) {
-          ctx.strokeStyle = 'rgba(8,12,20,0.9)';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(headX - size / 2, headY - size / 2, size, size);
-          labels.push({
-            x: headX,
-            y: headY,
-            text: id === replay.victimActorId ? 'أنت' : (replay.killerName ?? ''),
-            color: replay.colorOf(id),
-          });
-        }
-      }
-    }
-
-    // نقطة القطع: تنبض كي تلفت العين إلى موضع الحدث بالضبط.
-    const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 180);
-    const cx = offsetX + replay.x * cell;
-    const cy = offsetY + replay.y * cell;
-    ctx.strokeStyle = `rgba(255,107,107,${pulse.toFixed(2)})`;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, Math.max(10, cell * 1.6), 0, Math.PI * 2);
-    ctx.stroke();
-
-    // الأسماء فوق الرؤوس: من هو أيّ خط، بلا تخمين.
-    ctx.font = '700 12px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.direction = 'rtl';
-    for (const label of labels) {
-      if (!label.text) continue;
-      // الاسم يُقصّ عند الحافة إن تُرك حرًّا، فنحصره داخل اللوحة.
-      const half = ctx.measureText(label.text).width / 2 + 4;
-      const x = Math.min(width - half, Math.max(half, label.x));
-      const y = Math.max(14, label.y - Math.max(10, cell * 1.1));
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(8,12,20,0.9)';
-      ctx.strokeText(label.text, x, y);
-      ctx.fillStyle = label.color;
-      ctx.fillText(label.text, x, y);
+    const frame = tape.frames[index];
+    const actors = this.stage.actors;
+    for (let i = 0; i < actors.length && i * 4 + 3 < frame.state.length; i++) {
+      const actor: Actor = actors[i];
+      actor.x = frame.state[i * 4];
+      actor.y = frame.state[i * 4 + 1];
+      actor.heading = frame.state[i * 4 + 2];
+      actor.alive = frame.state[i * 4 + 3] === 1;
+      actor.cx = Math.floor(actor.x);
+      actor.cy = Math.floor(actor.y);
+      const trail = frame.trails[i];
+      actor.trail.length = 0;
+      for (let t = 0; t < trail.length; t++) actor.trail.push(trail[t]);
     }
   }
 }

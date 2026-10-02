@@ -9,6 +9,7 @@ import {
   type MatchState,
   type NetEvent,
   type NetFeedItem,
+  type NetBoardRow,
   type NetLeaderEntry,
   type NetRoundResult,
   type RegionId,
@@ -475,10 +476,11 @@ export class Room {
     }
     this.keyframeClock += deltaMs;
     // حدٌّ أدنى بين إطارين كي لا يتحوّل تتابعُ استحواذاتٍ إلى فيضان.
-    if (this.keyframeClock >= KEYFRAME_INTERVAL_MS || (this.keyframeDue && this.keyframeClock >= KEYFRAME_MIN_GAP_MS)) {
+    const periodic = this.keyframeClock >= KEYFRAME_INTERVAL_MS;
+    if (periodic || (this.keyframeDue && this.keyframeClock >= KEYFRAME_MIN_GAP_MS)) {
       this.keyframeClock = 0;
       this.keyframeDue = false;
-      this.broadcastKeyframe();
+      this.broadcastKeyframe(!periodic);
     }
 
     if (engine.status === 'ended' || this.roundOver()) this.setState('FINISHED');
@@ -669,7 +671,7 @@ export class Room {
     if (!this.world) return;
     const engine = this.world.engine;
     const actors = engine.actors.map((actor) => packActor(actor, engine.areaPercent(actor)));
-    const lb = this.leaderboard();
+    const lb = this.boardRows();
     const text = JSON.stringify({
       t: 'snap',
       tick: this.tickCount,
@@ -699,9 +701,22 @@ export class Room {
     player.link.sendRaw(this.keyframeText());
   }
 
-  private broadcastKeyframe(): void {
+  /**
+   * بثّ إطار مفتاحي.
+   *
+   * `urgent` يعني أنه خارج الدور (بعد استحواذ). الإطار المفتاحي أثقل ما
+   * نرسله (1–4 ك.بايت)، فإرساله خارج الدور إلى وصلةٍ مختنقة يزيدها خنقًا
+   * ويقطعها — ومن تُقطع وصلته لا ينفعه أن صورة أرضه كانت دقيقة.
+   * الوصلات المختنقة تكتفي بالدور الزمني.
+   */
+  private broadcastKeyframe(urgent = false): void {
     const text = this.keyframeText();
-    for (const player of this.players.values()) player.link?.sendRaw(text);
+    for (const player of this.players.values()) {
+      const link = player.link;
+      if (!link) continue;
+      if (urgent && link.saturated()) continue;
+      link.sendRaw(text);
+    }
   }
 
   /** الإطار المفتاحي يُرمَّز مرة واحدة للغرفة، لا مرة لكل لاعب فيها. */
@@ -716,6 +731,21 @@ export class Room {
       trail: frame.trail,
       actors: engine.actors.map((actor) => packActor(actor, engine.areaPercent(actor))),
     } satisfies ServerMessage);
+  }
+
+  /**
+   * صفوف الصدارة المضغوطة للقطات.
+   * الترتيب نفسه الذي تبنيه `leaderboard()`، لكن بلا الحقول الثابتة التي
+   * يعرفها العميل من وصف الغرفة — وهي التي كانت تلتهم أغلب كل لقطة.
+   */
+  private boardRows(): NetBoardRow[] {
+    if (!this.world) return [];
+    const engine = this.world.engine;
+    return engine.ranking().map((actor) => {
+      const player = this.byActor.get(actor.id);
+      const eliminated = player ? player.eliminated : !actor.alive && actor.respawnAt < 0;
+      return [actor.id, Math.round(engine.areaPercent(actor) * 100), eliminated ? 1 : 0] as NetBoardRow;
+    });
   }
 
   /** لوحة الصدارة يبنيها الخادم بالكامل: الترتيب والمساحة وحالة الخروج. */

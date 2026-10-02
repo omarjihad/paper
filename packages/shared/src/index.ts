@@ -4,7 +4,7 @@
  * فتكشف فورًا ما إذا كانت الاستضافة تشغّل آخر كود أم نسخة قديمة.
  * ارفعها مع كل تحديث.
  */
-export const APP_VERSION = 'V17';
+export const APP_VERSION = 'V18';
 
 /**
  * العقود المشتركة بين الواجهة والخادم.
@@ -201,6 +201,12 @@ export interface MultiplayerConfig {
   POOR_LINK_RTT_MS: number;
   /** أقصى ما يُسمح بتراكمه في مخزن إرسال لاعب قبل تخطّي لقطته. */
   SEND_BUFFER_LIMIT: number;
+  /**
+   * صمتٌ تامّ من العميل يعني وصلةً لا تلحق.
+   * أطول من نبضة العميل (3 ثوانٍ) بهامش يسمح بضياع نبضة واحدة، كي لا
+   * يُحسَب اللاعبُ الساكن الذي لا يلمس الشاشة وصلةً مختنقة.
+   */
+  SATURATION_SILENCE_MS: number;
   /** عدد السيرفرات المعروضة للاعب. ثابتة كي يجدها الأصدقاء في المكان نفسه. */
   LOBBY_COUNT: number;
   /**
@@ -227,6 +233,7 @@ export const MULTIPLAYER: MultiplayerConfig = {
   WEAK_LINK_RTT_MS: 180,
   POOR_LINK_RTT_MS: 350,
   SEND_BUFFER_LIMIT: 48 * 1024,
+  SATURATION_SILENCE_MS: 5000,
   LOBBY_COUNT: 6,
   ROUND_HARD_CAP_MINUTES: 20,
 };
@@ -301,7 +308,7 @@ export function isRegionId(value: unknown): value is RegionId {
 /** مسار الاتصال اللحظي. */
 export const REALTIME_PATH = '/ws';
 /** رقم البروتوكول — يرفض الخادم أي عميل قديم بدل أن يتصرّف بغرابة. */
-export const NET_PROTOCOL_VERSION = 1;
+export const NET_PROTOCOL_VERSION = 2;
 
 /**
  * حالة مشارك واحد داخل اللقطة، كمصفوفة مضغوطة بدل كائن:
@@ -327,6 +334,16 @@ export interface NetLeaderEntry {
   eliminated: boolean;
   avatarUrl: string | null;
 }
+
+/**
+ * سطر صدارة مضغوط داخل اللقطة: [المشارك، المساحة×100، خرج؟].
+ *
+ * الاسم واللون والصورة لا تتغيّر خلال الجولة، وكانت تُعاد خمس عشرة مرة في
+ * الثانية فتلتهم ٨٠٪ من كل لقطة — نحو 17 ك.بايت/ثانية من التكرار المحض
+ * على وصلة هاتف. الهوية تصل مرة واحدة في وصف الغرفة، وهنا يسري المتغيّر
+ * وحده.
+ */
+export type NetBoardRow = [actorId: number, areaX100: number, eliminated: 0 | 1];
 
 /** سطر في شريط الإخراجات — أسماء عرض حقيقية كما اعتمدها الخادم. */
 export type NetFeedItem =
@@ -436,7 +453,7 @@ export type ServerMessage =
     }
   | { t: 'room'; room: RoomDescriptor }
   | { t: 'state'; state: MatchState; startsInMs: number }
-  | { t: 'snap'; tick: number; elapsed: number; actors: NetActor[]; lb: NetLeaderEntry[] }
+  | { t: 'snap'; tick: number; elapsed: number; actors: NetActor[]; lb: NetBoardRow[] }
   | { t: 'key'; tick: number; owner: string; trail: string; actors: NetActor[] }
   | { t: 'events'; items: NetEvent[]; feed: NetFeedItem[] }
   | { t: 'over'; result: NetRoundResult }

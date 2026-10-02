@@ -9,6 +9,7 @@ import {
   AppError,
   HEARTBEAT_MS,
   ProtocolRouter,
+  congested,
   RoomManager,
   TelegramApi,
   TelegramBot,
@@ -103,9 +104,8 @@ export class GameServer implements DurableObject {
       send: (message: ServerMessage) => this.push(server, JSON.stringify(message)),
       sendRaw: (text: string) => this.push(server, text),
       rttMs: () => session.rtt,
-      // Workers لا تكشف حجم الطابور، فلا ندّعي قياسًا لا نملكه؛ التخفيف
-      // يبقى قائمًا على زمن الوصلة المقاس وهو المؤشّر الأصدق أصلًا.
-      saturated: () => false,
+      // workerd لا يطبّق bufferedAmount، فالقياس من ردّ العميل على النبضة.
+      saturated: () => congested(session),
       close: (code: string, reason: string) => {
         link.send({ t: 'error', code, message: reason });
         this.shutSocket(server, 4000, code);
@@ -152,10 +152,12 @@ export class GameServer implements DurableObject {
   }
 
   private push(socket: WebSocket, text: string): void {
+    // الكتابة في مقبس يُغلَق تمنع إتمام مصافحة الإغلاق فتبقى الجلسة معلّقة.
+    if (socket.readyState !== WebSocket.READY_STATE_OPEN) return;
     try {
       socket.send(text);
     } catch {
-      // وصلة مغلقة أثناء البث: الإغلاق سيصل كحدث ويُنظَّف هناك.
+      // سبقنا الإغلاق: سيصل كحدث ويُنظَّف هناك.
     }
   }
 

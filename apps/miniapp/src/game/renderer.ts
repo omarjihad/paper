@@ -13,6 +13,16 @@ const RESTING_JOYSTICK_BOTTOM = 112;
 const CAMERA_FOLLOW = 12;
 const MINIMAP_MARGIN = 14;
 
+export interface RendererOptions {
+  /**
+   * الخريطة المصغّرة والعصا. تُطفأ في إعادة العرض: اللاعب هناك يشاهد
+   * لا يتحكّم، وأدواتُ التحكّم تكذب عليه بأن بإمكانه التدخّل.
+   */
+  chrome?: boolean;
+  /** عدد الخلايا الظاهرة على البُعد الأصغر — أكبر = مشهد أوسع. */
+  visibleCells?: number;
+}
+
 /**
  * راسم Canvas 2D.
  * قواعد الأداء هنا: لا تخصيص كائنات داخل الإطار، ولا رسم لما هو خارج الكاميرا،
@@ -46,10 +56,16 @@ export class Renderer {
    */
   private inset = { left: 0, bottom: 0 };
 
+  private readonly chrome: boolean;
+  private readonly visibleCells: number;
+
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly engine: GameEngine,
+    options: RendererOptions = {},
   ) {
+    this.chrome = options.chrome ?? true;
+    this.visibleCells = options.visibleCells ?? VISIBLE_CELLS;
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) throw new Error('تعذّر إنشاء سياق الرسم');
     this.ctx = context;
@@ -73,7 +89,7 @@ export class Renderer {
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.scale = Math.min(this.width, this.height) / (VISIBLE_CELLS * this.engine.config.cellSize);
+    this.scale = Math.min(this.width, this.height) / (this.visibleCells * this.engine.config.cellSize);
     this.inset = readInset();
     // على شاشة قصيرة (وضع العرض) لا يجوز أن تلتهم الخريطة ربع الارتفاع.
     const shortSide = Math.min(this.width, this.height);
@@ -129,8 +145,15 @@ export class Renderer {
     this.effects.drawLabels(ctx, offsetX, offsetY, cell);
     this.effects.drawFlash(ctx, this.width, this.height);
 
-    this.drawMinimap(cell);
-    this.drawJoystick(joystick);
+    if (this.chrome) {
+      this.drawMinimap(cell);
+      this.drawJoystick(joystick);
+    }
+  }
+
+  /** يقفز بالكاميرا إلى موضع البؤرة بلا لحاق — عند بدء مشهد جديد. */
+  snapCamera(): void {
+    this.cameraReady = false;
   }
 
   /** الخريطة المصغّرة في الزاوية السفلية، بعيدًا عن مكان الإبهام. */
